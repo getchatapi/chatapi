@@ -8,6 +8,21 @@ A lightweight, multitenant chat service built in Go with SQLite, WebSocket suppo
 [![GitHub release (latest by date)](https://img.shields.io/github/v/release/hastenr/chatapi)](https://github.com/hastenr/chatapi/releases)
 [![Docker Image Version (latest by date)](https://img.shields.io/docker/v/hastenr/chatapi)](https://hub.docker.com/r/hastenr/chatapi)
 
+## Deploy
+
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/hastenr/chatapi)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/hastenr/chatapi)
+
+| Platform | Guide |
+|----------|-------|
+| **Docker Compose** | `cp .env.example .env && docker compose up -d` |
+| **Fly.io** | `fly launch` then `fly secrets set MASTER_API_KEY=...` |
+| **Railway** | Import repo, add a Volume at `/data`, set `MASTER_API_KEY` |
+| **Render** | Click the button above — `MASTER_API_KEY` is auto-generated |
+| **Binary** | See [Releases](https://github.com/hastenr/chatapi/releases) |
+
+> All containerised deployments mount a persistent volume at `/data` for the SQLite database.
+
 ## Releases
 
 Download pre-built binaries and Docker images from [GitHub Releases](https://github.com/hastenr/chatapi/releases).

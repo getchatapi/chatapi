@@ -38,8 +38,14 @@ COPY --from=builder /app/chatapi .
 # Change ownership
 RUN chown appuser:appgroup chatapi
 
+# Create persistent data directory for SQLite and set ownership
+RUN mkdir -p /data && chown appuser:appgroup /data
+
 # Switch to non-root user
 USER appuser
+
+# Declare volume for SQLite data
+VOLUME ["/data"]
 
 # Expose port
 EXPOSE 8080

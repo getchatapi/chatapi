@@ -1,0 +1,39 @@
+app = "chatapi"
+primary_region = "iad"
+
+[build]
+  image = "hastenr/chatapi:latest"
+
+[env]
+  LISTEN_ADDR = ":8080"
+  DATABASE_DSN = "file:/data/chatapi.db?_journal_mode=WAL&_busy_timeout=5000"
+  WS_ALLOWED_ORIGINS = "*"
+  DEFAULT_RATE_LIMIT = "100"
+  WS_MAX_CONNECTIONS_PER_USER = "5"
+
+# Set secrets via CLI — never commit these:
+#   fly secrets set MASTER_API_KEY=your-key
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[[mounts]]
+  source = "chatapi_data"
+  destination = "/data"
+  initial_size = "1gb"

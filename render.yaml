@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: chatapi
+    env: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: LISTEN_ADDR
+        value: ":8080"
+      - key: DATABASE_DSN
+        value: "file:/data/chatapi.db?_journal_mode=WAL&_busy_timeout=5000"
+      - key: MASTER_API_KEY
+        generateValue: true
+      - key: WS_ALLOWED_ORIGINS
+        value: "*"
+      - key: DEFAULT_RATE_LIMIT
+        value: "100"
+      - key: WS_MAX_CONNECTIONS_PER_USER
+        value: "5"
+    disk:
+      name: chatapi-data
+      mountPath: /data
+      sizeGB: 1
