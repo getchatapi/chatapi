@@ -158,10 +158,8 @@ func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 
 // testDatabaseWrite performs a simple write test on the database
 func (h *Handler) testDatabaseWrite() bool {
-	// Use a simple tenant query as a DB connectivity test
-	// This is safer than trying to insert/delete test data
-	tenants, err := h.tenantSvc.ListTenants()
-	return err == nil && tenants != nil
+	_, err := h.tenantSvc.ListTenants()
+	return err == nil
 }
 
 // HandleCreateRoom create room endpoint
