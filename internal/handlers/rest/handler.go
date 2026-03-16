@@ -440,3 +440,43 @@ func (h *Handler) HandleGetDeadLetters(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
+
+// HandleGetUserRooms returns all rooms the authenticated user belongs to
+func (h *Handler) HandleGetUserRooms(w http.ResponseWriter, r *http.Request) {
+	tenantID := h.getTenantID(r)
+	userID := h.requireUserID(w, r)
+	if userID == "" {
+		return
+	}
+
+	rooms, err := h.chatroomSvc.GetUserRooms(tenantID, userID)
+	if err != nil {
+		slog.Error("Failed to get user rooms", "error", err, "tenant_id", tenantID, "user_id", userID)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if rooms == nil {
+		rooms = []*models.Room{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"rooms": rooms})
+}
+
+// HandleWSToken issues a short-lived WebSocket token for browser clients
+func (h *Handler) HandleWSToken(w http.ResponseWriter, r *http.Request) {
+	tenantID := h.getTenantID(r)
+	userID := h.requireUserID(w, r)
+	if userID == "" {
+		return
+	}
+
+	token := h.realtimeSvc.IssueWSToken(tenantID, userID)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"token":      token,
+		"expires_in": 60,
+	})
+}

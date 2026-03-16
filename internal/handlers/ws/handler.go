@@ -78,31 +78,47 @@ func NewHandler(
 
 // HandleConnection handles WebSocket connections
 func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
-	// Extract authentication — API key must come from headers only (never query params)
-	apiKey := r.Header.Get("X-API-Key")
-	userID := r.Header.Get("X-User-Id")
+	var tenantID, userID string
 
-	// user_id may come from query params (not a secret)
-	if userID == "" {
-		userID = r.URL.Query().Get("user_id")
-	}
+	// Token-based auth — issued by POST /ws/token, used by browser clients
+	if token := r.URL.Query().Get("token"); token != "" {
+		tid, uid, ok := h.realtimeSvc.ConsumeWSToken(token)
+		if !ok {
+			http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
+			return
+		}
+		tenantID = tid
+		userID = uid
 
-	if apiKey == "" || userID == "" {
-		http.Error(w, "Missing authentication", http.StatusUnauthorized)
-		return
-	}
+		// Still enforce rate limit (need tenant object for ID, which we already have)
+		if err := h.tenantSvc.CheckRateLimit(tenantID); err != nil {
+			http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+	} else {
+		// Header-based auth — for server-to-server / Node.js clients
+		apiKey := r.Header.Get("X-API-Key")
+		userID = r.Header.Get("X-User-Id")
+		if userID == "" {
+			userID = r.URL.Query().Get("user_id")
+		}
 
-	// Validate tenant
-	tenant, err := h.tenantSvc.ValidateAPIKey(apiKey)
-	if err != nil {
-		http.Error(w, "Invalid authentication", http.StatusUnauthorized)
-		return
-	}
+		if apiKey == "" || userID == "" {
+			http.Error(w, "Missing authentication", http.StatusUnauthorized)
+			return
+		}
 
-	// Check rate limit
-	if err := h.tenantSvc.CheckRateLimit(tenant.TenantID); err != nil {
-		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
-		return
+		t, err := h.tenantSvc.ValidateAPIKey(apiKey)
+		if err != nil {
+			http.Error(w, "Invalid authentication", http.StatusUnauthorized)
+			return
+		}
+		tenantID = t.TenantID
+
+		if err := h.tenantSvc.CheckRateLimit(tenantID); err != nil {
+			http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
 	}
 
 	// Upgrade to WebSocket
@@ -113,7 +129,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Register connection — enforces per-user connection cap
-	if err := h.realtimeSvc.RegisterConnection(tenant.TenantID, userID, conn); err != nil {
+	if err := h.realtimeSvc.RegisterConnection(tenantID, userID, conn); err != nil {
 		conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "connection limit reached"))
 		conn.Close()
@@ -121,13 +137,13 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send presence update
-	h.realtimeSvc.BroadcastPresenceUpdate(tenant.TenantID, userID, "online")
+	h.realtimeSvc.BroadcastPresenceUpdate(tenantID, userID, "online")
 
 	// Handle reconnect sync - send missed messages
-	go h.handleReconnectSync(tenant.TenantID, userID, conn)
+	go h.handleReconnectSync(tenantID, userID, conn)
 
 	// Start connection handler
-	go h.handleConnection(tenant.TenantID, userID, conn)
+	go h.handleConnection(tenantID, userID, conn)
 }
 
 // handleReconnectSync sends missed messages to a reconnecting client

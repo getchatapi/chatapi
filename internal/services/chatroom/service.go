@@ -275,6 +275,44 @@ func (s *Service) RemoveMember(tenantID, roomID, userID string) error {
 	return nil
 }
 
+// GetUserRooms returns all rooms that a user is a member of
+func (s *Service) GetUserRooms(tenantID, userID string) ([]*models.Room, error) {
+	query := `
+		SELECT r.room_id, r.tenant_id, r.type, r.unique_key, r.name, r.last_seq, r.metadata, r.created_at
+		FROM rooms r
+		JOIN room_members rm ON r.room_id = rm.chatroom_id AND r.tenant_id = rm.tenant_id
+		WHERE r.tenant_id = ? AND rm.user_id = ?
+		ORDER BY r.created_at DESC
+	`
+
+	rows, err := s.db.Query(query, tenantID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user rooms: %w", err)
+	}
+	defer rows.Close()
+
+	var rooms []*models.Room
+	for rows.Next() {
+		var room models.Room
+		err := rows.Scan(
+			&room.RoomID,
+			&room.TenantID,
+			&room.Type,
+			&room.UniqueKey,
+			&room.Name,
+			&room.LastSeq,
+			&room.Metadata,
+			&room.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan room: %w", err)
+		}
+		rooms = append(rooms, &room)
+	}
+
+	return rooms, rows.Err()
+}
+
 // generateRoomID generates a unique room ID
 // In a real implementation, this would use UUID or similar
 func generateRoomID() string {

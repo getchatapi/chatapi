@@ -53,6 +53,7 @@ func NewServer(
 
 	// Apply auth middleware to protected routes
 	protectedMux := http.NewServeMux()
+	protectedMux.HandleFunc("GET /rooms", restHandler.AuthMiddleware(restHandler.HandleGetUserRooms))
 	protectedMux.HandleFunc("POST /rooms", restHandler.AuthMiddleware(restHandler.HandleCreateRoom))
 	protectedMux.HandleFunc("GET /rooms/{room_id}", restHandler.AuthMiddleware(restHandler.HandleGetRoom))
 	protectedMux.HandleFunc("GET /rooms/{room_id}/members", restHandler.AuthMiddleware(restHandler.HandleGetRoomMembers))
@@ -60,12 +61,14 @@ func NewServer(
 	protectedMux.HandleFunc("GET /rooms/{room_id}/messages", restHandler.AuthMiddleware(restHandler.HandleGetMessages))
 	protectedMux.HandleFunc("POST /acks", restHandler.AuthMiddleware(restHandler.HandleAck))
 	protectedMux.HandleFunc("POST /notify", restHandler.AuthMiddleware(restHandler.HandleNotify))
+	protectedMux.HandleFunc("POST /ws/token", restHandler.AuthMiddleware(restHandler.HandleWSToken))
 	protectedMux.HandleFunc("GET /admin/dead-letters", restHandler.AuthMiddleware(restHandler.HandleGetDeadLetters))
 
 	// Register public routes
 	mux.HandleFunc("/health", restHandler.HandleHealth)
 	mux.HandleFunc("/metrics", restHandler.HandleMetrics)
 	mux.HandleFunc("/ws", wsHandler.HandleConnection)
+	mux.HandleFunc("POST /admin/tenants", restHandler.HandleCreateTenant)
 
 	// Mount protected routes with auth middleware
 	mux.Handle("/", restHandler.AuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +78,7 @@ func NewServer(
 	// Create HTTP server
 	httpServer := &http.Server{
 		Addr:         cfg.ListenAddr,
-		Handler:      mux,
+		Handler:      corsMiddleware(cfg.AllowedOrigins, mux),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -86,6 +89,32 @@ func NewServer(
 		config:      cfg,
 		realtimeSvc: realtimeSvc,
 	}
+}
+
+// corsMiddleware adds CORS headers. Reuses AllowedOrigins from config.
+func corsMiddleware(allowedOrigins []string, next http.Handler) http.Handler {
+	originSet := make(map[string]struct{}, len(allowedOrigins))
+	for _, o := range allowedOrigins {
+		originSet[o] = struct{}{}
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			_, wildcard := originSet["*"]
+			_, allowed := originSet[origin]
+			if wildcard || allowed || len(allowedOrigins) == 0 {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-API-Key, X-User-Id, X-Master-Key")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			}
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // Start starts the HTTP server

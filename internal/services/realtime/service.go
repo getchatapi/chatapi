@@ -2,7 +2,9 @@ package realtime
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -13,18 +15,25 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+type wsToken struct {
+	tenantID  string
+	userID    string
+	expiresAt time.Time
+}
+
 // Service manages WebSocket connections and real-time messaging
 type Service struct {
-	mu                   sync.RWMutex
-	db                   *sql.DB
-	connections          map[string]map[string][]*websocket.Conn // tenant -> user -> connections
-	presence             map[string]map[string]time.Time         // tenant -> user -> last seen
-	broadcastCh          chan *broadcastMessage
-	shutdownCh           chan struct{}
-	shutdownOnce         sync.Once
+	mu                    sync.RWMutex
+	db                    *sql.DB
+	connections           map[string]map[string][]*websocket.Conn // tenant -> user -> connections
+	presence              map[string]map[string]time.Time         // tenant -> user -> last seen
+	wsTokens              sync.Map                                // token -> *wsToken
+	broadcastCh           chan *broadcastMessage
+	shutdownCh            chan struct{}
+	shutdownOnce          sync.Once
 	maxConnectionsPerUser int
-	activeConnections    atomic.Int64
-	droppedBroadcasts    atomic.Int64
+	activeConnections     atomic.Int64
+	droppedBroadcasts     atomic.Int64
 }
 
 type broadcastMessage struct {
@@ -375,6 +384,35 @@ func (s *Service) ActiveConnections() int64 {
 // DroppedBroadcasts returns the total number of messages dropped due to a full broadcast channel.
 func (s *Service) DroppedBroadcasts() int64 {
 	return s.droppedBroadcasts.Load()
+}
+
+// IssueWSToken creates a one-time, short-lived token for browser WebSocket auth.
+// The token expires in 60 seconds and is consumed on first use.
+func (s *Service) IssueWSToken(tenantID, userID string) string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic("failed to generate ws token")
+	}
+	token := hex.EncodeToString(b)
+	s.wsTokens.Store(token, &wsToken{
+		tenantID:  tenantID,
+		userID:    userID,
+		expiresAt: time.Now().Add(60 * time.Second),
+	})
+	return token
+}
+
+// ConsumeWSToken validates and deletes a WS token. Returns tenant/user if valid.
+func (s *Service) ConsumeWSToken(token string) (tenantID, userID string, ok bool) {
+	v, loaded := s.wsTokens.LoadAndDelete(token)
+	if !loaded {
+		return "", "", false
+	}
+	t := v.(*wsToken)
+	if time.Now().After(t.expiresAt) {
+		return "", "", false
+	}
+	return t.tenantID, t.userID, true
 }
 
 // Shutdown gracefully shuts down the realtime service
