@@ -16,6 +16,7 @@ import (
 	"github.com/hastenr/chatapi/internal/services/notification"
 	"github.com/hastenr/chatapi/internal/services/realtime"
 	"github.com/hastenr/chatapi/internal/services/tenant"
+	"github.com/hastenr/chatapi/internal/services/webhook"
 	"github.com/hastenr/chatapi/internal/testutil"
 )
 
@@ -36,7 +37,8 @@ func newTestHandler(t *testing.T) (*rest.Handler, *tenant.Service) {
 	chatroomSvc := chatroom.NewService(db.DB)
 	messageSvc := message.NewService(db.DB)
 	realtimeSvc := realtime.NewService(db.DB, 5)
-	deliverySvc := delivery.NewService(db.DB, realtimeSvc)
+	webhookSvc := webhook.NewService()
+	deliverySvc := delivery.NewService(db.DB, realtimeSvc, chatroomSvc, tenantSvc, webhookSvc)
 	notifSvc := notification.NewService(db.DB)
 
 	t.Cleanup(func() { realtimeSvc.Shutdown(context.Background()) })

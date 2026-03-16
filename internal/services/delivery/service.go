@@ -8,23 +8,38 @@ import (
 	"time"
 
 	"github.com/hastenr/chatapi/internal/models"
+	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/realtime"
+	"github.com/hastenr/chatapi/internal/services/tenant"
+	"github.com/hastenr/chatapi/internal/services/webhook"
 )
 
 // Service handles message and notification delivery with retries
 type Service struct {
 	db               *sql.DB
 	realtimeSvc      *realtime.Service
+	chatroomSvc      *chatroom.Service
+	tenantSvc        *tenant.Service
+	webhookSvc       *webhook.Service
 	maxAttempts      int
 	deliveryAttempts atomic.Int64
 	deliveryFailures atomic.Int64
 }
 
 // NewService creates a new delivery service
-func NewService(db *sql.DB, realtimeSvc *realtime.Service) *Service {
+func NewService(
+	db *sql.DB,
+	realtimeSvc *realtime.Service,
+	chatroomSvc *chatroom.Service,
+	tenantSvc *tenant.Service,
+	webhookSvc *webhook.Service,
+) *Service {
 	return &Service{
 		db:          db,
 		realtimeSvc: realtimeSvc,
+		chatroomSvc: chatroomSvc,
+		tenantSvc:   tenantSvc,
+		webhookSvc:  webhookSvc,
 		maxAttempts: 5,
 	}
 }
@@ -113,6 +128,72 @@ func (s *Service) attemptMessageDelivery(msg *models.UndeliveredMessage) error {
 	// User is offline, increment attempts
 	s.deliveryFailures.Add(1)
 	return s.incrementMessageAttempts(msg.ID)
+}
+
+// HandleNewMessage queues undelivered messages and fires webhooks for offline room members.
+// Call this after a message has been sent and broadcast to online users.
+// The work runs in the calling goroutine — wrap in go if you don't want to block.
+func (s *Service) HandleNewMessage(tenantID, roomID string, message *models.Message) {
+	members, err := s.chatroomSvc.GetRoomMembers(tenantID, roomID)
+	if err != nil {
+		slog.Error("HandleNewMessage: failed to get room members",
+			"tenant_id", tenantID, "room_id", roomID, "error", err)
+		return
+	}
+
+	room, err := s.chatroomSvc.GetRoom(tenantID, roomID)
+	if err != nil {
+		slog.Error("HandleNewMessage: failed to get room",
+			"tenant_id", tenantID, "room_id", roomID, "error", err)
+		return
+	}
+
+	cfg, err := s.tenantSvc.GetTenantConfig(tenantID)
+	if err != nil {
+		slog.Warn("HandleNewMessage: failed to get tenant config, webhooks disabled",
+			"tenant_id", tenantID, "error", err)
+	}
+
+	msgInfo := webhook.MessageInfo{
+		MessageID: message.MessageID,
+		SenderID:  message.SenderID,
+		Content:   message.Content,
+		Seq:       message.Seq,
+		CreatedAt: message.CreatedAt,
+	}
+
+	for _, member := range members {
+		if member.UserID == message.SenderID {
+			continue
+		}
+		if s.realtimeSvc.IsUserOnline(tenantID, member.UserID) {
+			continue
+		}
+
+		// Queue for the delivery worker to retry
+		if err := s.queueUndelivered(tenantID, member.UserID, roomID, message.MessageID, message.Seq); err != nil {
+			slog.Error("HandleNewMessage: failed to queue undelivered message",
+				"tenant_id", tenantID,
+				"user_id", member.UserID,
+				"message_id", message.MessageID,
+				"error", err)
+		}
+
+		// Fire webhook immediately so the app can push a notification
+		if cfg != nil && cfg.WebhookURL != "" {
+			go s.webhookSvc.NotifyOfflineUser(cfg.WebhookURL, tenantID, roomID, member.UserID, room.Metadata, msgInfo)
+		}
+	}
+}
+
+// queueUndelivered inserts an entry into the undelivered_messages table.
+func (s *Service) queueUndelivered(tenantID, userID, roomID, messageID string, seq int) error {
+	query := `
+		INSERT INTO undelivered_messages (tenant_id, user_id, chatroom_id, message_id, seq)
+		VALUES (?, ?, ?, ?, ?)
+	`
+	_, err := s.db.Exec(query, tenantID, userID, roomID, messageID, seq)
+	return err
 }
 
 // DeliveryAttempts returns the total number of message delivery attempts since startup.

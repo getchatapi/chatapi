@@ -63,7 +63,7 @@ func (s *Service) createDMRoom(tenantID string, req *models.CreateRoomRequest) (
 	// Check if DM already exists
 	var existingRoom models.Room
 	query := `
-		SELECT room_id, tenant_id, type, unique_key, name, last_seq, created_at
+		SELECT room_id, tenant_id, type, unique_key, name, last_seq, metadata, created_at
 		FROM rooms
 		WHERE tenant_id = ? AND unique_key = ?
 	`
@@ -75,6 +75,7 @@ func (s *Service) createDMRoom(tenantID string, req *models.CreateRoomRequest) (
 		&existingRoom.UniqueKey,
 		&existingRoom.Name,
 		&existingRoom.LastSeq,
+		&existingRoom.Metadata,
 		&existingRoom.CreatedAt,
 	)
 
@@ -94,16 +95,17 @@ func (s *Service) createDMRoom(tenantID string, req *models.CreateRoomRequest) (
 		TenantID:  tenantID,
 		Type:      "dm",
 		UniqueKey: uniqueKey,
-		Name:      req.Name, // Optional custom name for DMs
+		Name:      req.Name,
+		Metadata:  req.Metadata,
 		LastSeq:   0,
 	}
 
 	insertQuery := `
-		INSERT INTO rooms (room_id, tenant_id, type, unique_key, name, last_seq)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO rooms (room_id, tenant_id, type, unique_key, name, metadata, last_seq)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 
-	_, err = s.db.Exec(insertQuery, room.RoomID, room.TenantID, room.Type, room.UniqueKey, room.Name, room.LastSeq)
+	_, err = s.db.Exec(insertQuery, room.RoomID, room.TenantID, room.Type, room.UniqueKey, room.Name, room.Metadata, room.LastSeq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create DM room: %w", err)
 	}
@@ -123,15 +125,16 @@ func (s *Service) createGroupRoom(tenantID string, req *models.CreateRoomRequest
 		TenantID: tenantID,
 		Type:     req.Type,
 		Name:     req.Name,
+		Metadata: req.Metadata,
 		LastSeq:  0,
 	}
 
 	query := `
-		INSERT INTO rooms (room_id, tenant_id, type, name, last_seq)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO rooms (room_id, tenant_id, type, name, metadata, last_seq)
+		VALUES (?, ?, ?, ?, ?, ?)
 	`
 
-	_, err := s.db.Exec(query, room.RoomID, room.TenantID, room.Type, room.Name, room.LastSeq)
+	_, err := s.db.Exec(query, room.RoomID, room.TenantID, room.Type, room.Name, room.Metadata, room.LastSeq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create group room: %w", err)
 	}
@@ -171,7 +174,7 @@ func (s *Service) addMembers(tenantID, roomID string, userIDs []string) error {
 func (s *Service) GetRoom(tenantID, roomID string) (*models.Room, error) {
 	var room models.Room
 	query := `
-		SELECT room_id, tenant_id, type, unique_key, name, last_seq, created_at
+		SELECT room_id, tenant_id, type, unique_key, name, last_seq, metadata, created_at
 		FROM rooms
 		WHERE tenant_id = ? AND room_id = ?
 	`
@@ -183,6 +186,7 @@ func (s *Service) GetRoom(tenantID, roomID string) (*models.Room, error) {
 		&room.UniqueKey,
 		&room.Name,
 		&room.LastSeq,
+		&room.Metadata,
 		&room.CreatedAt,
 	)
 

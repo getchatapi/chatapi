@@ -268,6 +268,8 @@ func (h *Handler) HandleSendMessage(w http.ResponseWriter, r *http.Request) {
 		"created_at": message.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	})
 
+	go h.deliverySvc.HandleNewMessage(tenantID, roomID, message)
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(message)
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/hastenr/chatapi/internal/config"
 	"github.com/hastenr/chatapi/internal/models"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
+	"github.com/hastenr/chatapi/internal/services/delivery"
 	"github.com/hastenr/chatapi/internal/services/message"
 	"github.com/hastenr/chatapi/internal/services/realtime"
 	"github.com/hastenr/chatapi/internal/services/tenant"
@@ -21,6 +22,7 @@ type Handler struct {
 	chatroomSvc *chatroom.Service
 	messageSvc  *message.Service
 	realtimeSvc *realtime.Service
+	deliverySvc *delivery.Service
 	upgrader    websocket.Upgrader
 }
 
@@ -30,6 +32,7 @@ func NewHandler(
 	chatroomSvc *chatroom.Service,
 	messageSvc *message.Service,
 	realtimeSvc *realtime.Service,
+	deliverySvc *delivery.Service,
 	cfg *config.Config,
 ) *Handler {
 	allowedOrigins := cfg.AllowedOrigins
@@ -68,6 +71,7 @@ func NewHandler(
 		chatroomSvc: chatroomSvc,
 		messageSvc:  messageSvc,
 		realtimeSvc: realtimeSvc,
+		deliverySvc: deliverySvc,
 		upgrader:    websocket.Upgrader{CheckOrigin: checkOrigin},
 	}
 }
@@ -241,6 +245,8 @@ func (h *Handler) handleSendMessage(tenantID, userID string, data interface{}) e
 		"content":    message.Content,
 		"created_at": message.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	})
+
+	go h.deliverySvc.HandleNewMessage(tenantID, roomID, message)
 
 	return nil
 }

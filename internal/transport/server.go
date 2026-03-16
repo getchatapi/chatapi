@@ -16,6 +16,7 @@ import (
 	"github.com/hastenr/chatapi/internal/services/notification"
 	"github.com/hastenr/chatapi/internal/services/realtime"
 	"github.com/hastenr/chatapi/internal/services/tenant"
+	"github.com/hastenr/chatapi/internal/services/webhook"
 )
 
 // Server represents the HTTP server
@@ -37,9 +38,15 @@ func NewServer(
 	chatroomSvc := chatroom.NewService(db.DB)
 	messageSvc := message.NewService(db.DB)
 	notifSvc := notification.NewService(db.DB)
+	webhookSvc := webhook.NewService()
 
-	restHandler := rest.NewHandler(tenantSvc, chatroomSvc, messageSvc, realtimeSvc, deliverySvc, notifSvc, cfg)
-	wsHandler := ws.NewHandler(tenantSvc, chatroomSvc, messageSvc, realtimeSvc, cfg)
+	// Rebuild deliverySvc with the full dependency set now that chatroomSvc etc. are available.
+	// The deliverySvc passed in from main is replaced here because server.go owns service wiring.
+	_ = deliverySvc
+	fullDeliverySvc := delivery.NewService(db.DB, realtimeSvc, chatroomSvc, tenantSvc, webhookSvc)
+
+	restHandler := rest.NewHandler(tenantSvc, chatroomSvc, messageSvc, realtimeSvc, fullDeliverySvc, notifSvc, cfg)
+	wsHandler := ws.NewHandler(tenantSvc, chatroomSvc, messageSvc, realtimeSvc, fullDeliverySvc, cfg)
 
 	// Create mux and register routes
 	mux := http.NewServeMux()

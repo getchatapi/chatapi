@@ -19,6 +19,7 @@ type Room struct {
 	UniqueKey string    `json:"-" db:"unique_key"` // For DMs
 	Name      string    `json:"name,omitempty" db:"name"`
 	LastSeq   int       `json:"last_seq" db:"last_seq"`
+	Metadata  string    `json:"metadata,omitempty" db:"metadata"` // Arbitrary JSON for app-level context
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
 
@@ -92,9 +93,10 @@ type NotificationSubscription struct {
 
 // CreateRoomRequest represents a request to create a room
 type CreateRoomRequest struct {
-	Type    string   `json:"type"` // "dm", "group", "channel"
-	Members []string `json:"members"`
-	Name    string   `json:"name,omitempty"`
+	Type     string   `json:"type"` // "dm", "group", "channel"
+	Members  []string `json:"members"`
+	Name     string   `json:"name,omitempty"`
+	Metadata string   `json:"metadata,omitempty"` // Arbitrary JSON (listing_id, order_id, etc.)
 }
 
 // CreateMessageRequest represents a request to send a message

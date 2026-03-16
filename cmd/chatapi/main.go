@@ -11,9 +11,11 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/hastenr/chatapi/internal/config"
 	"github.com/hastenr/chatapi/internal/db"
+	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
 	"github.com/hastenr/chatapi/internal/services/realtime"
 	"github.com/hastenr/chatapi/internal/services/tenant"
+	"github.com/hastenr/chatapi/internal/services/webhook"
 	"github.com/hastenr/chatapi/internal/transport"
 	"github.com/hastenr/chatapi/internal/worker"
 )
@@ -56,7 +58,9 @@ func main() {
 	// Initialize services
 	tenantSvc := tenant.NewService(database.DB)
 	realtimeSvc := realtime.NewService(database.DB, cfg.MaxConnectionsPerUser)
-	deliverySvc := delivery.NewService(database.DB, realtimeSvc)
+	chatroomSvc := chatroom.NewService(database.DB)
+	webhookSvc := webhook.NewService()
+	deliverySvc := delivery.NewService(database.DB, realtimeSvc, chatroomSvc, tenantSvc, webhookSvc)
 
 	// Initialize workers
 	deliveryWorker := worker.NewDeliveryWorker(database, deliverySvc, cfg.WorkerInterval)

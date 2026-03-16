@@ -23,10 +23,13 @@ type Service struct {
 
 // TenantConfig represents per-tenant configuration
 type TenantConfig struct {
-	MaxMessageSize int `json:"max_message_size"`
-	RetryLimit     int `json:"retry_limit"`
-	DurableNotifications bool `json:"durable_notifications"`
-	RateLimit      int `json:"rate_limit"` // requests per second
+	MaxMessageSize       int    `json:"max_message_size"`
+	RetryLimit           int    `json:"retry_limit"`
+	DurableNotifications bool   `json:"durable_notifications"`
+	RateLimit            int    `json:"rate_limit"` // requests per second
+	// WebhookURL is called with a POST when a message arrives for an offline user.
+	// Payload: {"event":"message.new","tenant_id","room_id","recipient_id","room_metadata","message":{...}}
+	WebhookURL           string `json:"webhook_url,omitempty"`
 }
 
 // NewService creates a new tenant service
