@@ -4,15 +4,17 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
-	"github.com/hastenr/chatapi/internal/models"
 	"github.com/google/uuid"
+	"github.com/hastenr/chatapi/internal/models"
 )
 
 // Service handles message operations
 type Service struct {
-	db *sql.DB
+	db           *sql.DB
+	messagesSent atomic.Int64
 }
 
 // NewService creates a new message service
@@ -100,6 +102,7 @@ func (s *Service) SendMessage(tenantID, roomID, senderID string, req *models.Cre
 		CreatedAt:  now,
 	}
 
+	s.messagesSent.Add(1)
 	slog.Info("Message sent",
 		"tenant_id", tenantID,
 		"room_id", roomID,
@@ -108,6 +111,11 @@ func (s *Service) SendMessage(tenantID, roomID, senderID string, req *models.Cre
 		"seq", seq)
 
 	return message, nil
+}
+
+// MessagesSent returns the total number of messages sent since startup.
+func (s *Service) MessagesSent() int64 {
+	return s.messagesSent.Load()
 }
 
 // GetMessages retrieves messages for a room with pagination

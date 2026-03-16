@@ -37,7 +37,8 @@ type Config struct {
 
 	// WebSocket configuration
 	// Comma-separated list of allowed origins. Use "*" to allow all (dev only).
-	AllowedOrigins       []string
+	AllowedOrigins          []string
+	MaxConnectionsPerUser   int
 }
 
 // Load loads configuration from environment variables with sensible defaults
@@ -54,7 +55,8 @@ func Load() (*Config, error) {
 		WorkerInterval:       getEnvAsDuration("WORKER_INTERVAL", 30*time.Second),
 		RetryInterval:        getEnvAsDuration("RETRY_INTERVAL", 30*time.Second),
 		MasterAPIKey:         getEnv("MASTER_API_KEY", ""),
-		AllowedOrigins:       getEnvAsStringSlice("WS_ALLOWED_ORIGINS"),
+		AllowedOrigins:        getEnvAsStringSlice("WS_ALLOWED_ORIGINS"),
+		MaxConnectionsPerUser: getEnvAsInt("WS_MAX_CONNECTIONS_PER_USER", 5),
 	}
 
 	return cfg, nil

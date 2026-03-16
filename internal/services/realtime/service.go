@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -14,14 +15,16 @@ import (
 
 // Service manages WebSocket connections and real-time messaging
 type Service struct {
-	mu               sync.RWMutex
-	db               *sql.DB
-	connections      map[string]map[string][]*websocket.Conn // tenant -> user -> connections
-	presence         map[string]map[string]time.Time         // tenant -> user -> last seen
-	broadcastCh      chan *broadcastMessage
-	shutdownCh       chan struct{}
-	shutdownOnce     sync.Once
-	droppedBroadcasts atomic.Int64
+	mu                   sync.RWMutex
+	db                   *sql.DB
+	connections          map[string]map[string][]*websocket.Conn // tenant -> user -> connections
+	presence             map[string]map[string]time.Time         // tenant -> user -> last seen
+	broadcastCh          chan *broadcastMessage
+	shutdownCh           chan struct{}
+	shutdownOnce         sync.Once
+	maxConnectionsPerUser int
+	activeConnections    atomic.Int64
+	droppedBroadcasts    atomic.Int64
 }
 
 type broadcastMessage struct {
@@ -31,13 +34,17 @@ type broadcastMessage struct {
 }
 
 // NewService creates a new realtime service
-func NewService(db *sql.DB) *Service {
+func NewService(db *sql.DB, maxConnectionsPerUser int) *Service {
+	if maxConnectionsPerUser <= 0 {
+		maxConnectionsPerUser = 5
+	}
 	s := &Service{
-		db:          db,
-		connections: make(map[string]map[string][]*websocket.Conn),
-		presence:    make(map[string]map[string]time.Time),
-		broadcastCh: make(chan *broadcastMessage, 1000), // buffered channel
-		shutdownCh:  make(chan struct{}),
+		db:                   db,
+		connections:          make(map[string]map[string][]*websocket.Conn),
+		presence:             make(map[string]map[string]time.Time),
+		broadcastCh:          make(chan *broadcastMessage, 1000),
+		shutdownCh:           make(chan struct{}),
+		maxConnectionsPerUser: maxConnectionsPerUser,
 	}
 
 	// Start broadcast worker
@@ -49,20 +56,28 @@ func NewService(db *sql.DB) *Service {
 	return s
 }
 
-// RegisterConnection registers a new WebSocket connection for a user
-func (s *Service) RegisterConnection(tenantID, userID string, conn *websocket.Conn) {
+// RegisterConnection registers a new WebSocket connection for a user.
+// Returns an error if the user has reached the per-user connection limit.
+func (s *Service) RegisterConnection(tenantID, userID string, conn *websocket.Conn) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Initialize tenant map if needed
 	if s.connections[tenantID] == nil {
 		s.connections[tenantID] = make(map[string][]*websocket.Conn)
 	}
 
-	// Add connection
-	s.connections[tenantID][userID] = append(s.connections[tenantID][userID], conn)
+	current := len(s.connections[tenantID][userID])
+	if current >= s.maxConnectionsPerUser {
+		slog.Warn("Connection limit reached for user",
+			"tenant_id", tenantID,
+			"user_id", userID,
+			"limit", s.maxConnectionsPerUser)
+		return fmt.Errorf("connection limit of %d reached", s.maxConnectionsPerUser)
+	}
 
-	// Update presence
+	s.connections[tenantID][userID] = append(s.connections[tenantID][userID], conn)
+	s.activeConnections.Add(1)
+
 	if s.presence[tenantID] == nil {
 		s.presence[tenantID] = make(map[string]time.Time)
 	}
@@ -71,7 +86,8 @@ func (s *Service) RegisterConnection(tenantID, userID string, conn *websocket.Co
 	slog.Info("WebSocket connection registered",
 		"tenant_id", tenantID,
 		"user_id", userID,
-		"total_connections", len(s.connections[tenantID][userID]))
+		"total_connections", current+1)
+	return nil
 }
 
 // UnregisterConnection removes a WebSocket connection for a user
@@ -87,8 +103,8 @@ func (s *Service) UnregisterConnection(tenantID, userID string, conn *websocket.
 	// Remove the specific connection
 	for i, c := range connections {
 		if c == conn {
-			// Remove connection from slice
 			s.connections[tenantID][userID] = append(connections[:i], connections[i+1:]...)
+			s.activeConnections.Add(-1)
 			break
 		}
 	}
@@ -349,6 +365,16 @@ func (s *Service) cleanupStalePresence() {
 			}
 		}
 	}
+}
+
+// ActiveConnections returns the current number of open WebSocket connections.
+func (s *Service) ActiveConnections() int64 {
+	return s.activeConnections.Load()
+}
+
+// DroppedBroadcasts returns the total number of messages dropped due to a full broadcast channel.
+func (s *Service) DroppedBroadcasts() int64 {
+	return s.droppedBroadcasts.Load()
 }
 
 // Shutdown gracefully shuts down the realtime service

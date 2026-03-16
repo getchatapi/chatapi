@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/hastenr/chatapi/internal/models"
@@ -12,9 +13,11 @@ import (
 
 // Service handles message and notification delivery with retries
 type Service struct {
-	db          *sql.DB
-	realtimeSvc *realtime.Service
-	maxAttempts int
+	db               *sql.DB
+	realtimeSvc      *realtime.Service
+	maxAttempts      int
+	deliveryAttempts atomic.Int64
+	deliveryFailures atomic.Int64
 }
 
 // NewService creates a new delivery service
@@ -78,6 +81,7 @@ func (s *Service) ProcessUndeliveredMessages(tenantID string, limit int) error {
 // attemptMessageDelivery tries to deliver a message to a user
 func (s *Service) attemptMessageDelivery(msg *models.UndeliveredMessage) error {
 	// Check if user is online
+	s.deliveryAttempts.Add(1)
 	if s.realtimeSvc.IsUserOnline(msg.TenantID, msg.UserID) {
 		// Get the full message to send
 		fullMsg, err := s.getMessage(msg.TenantID, msg.MessageID)
@@ -107,7 +111,18 @@ func (s *Service) attemptMessageDelivery(msg *models.UndeliveredMessage) error {
 	}
 
 	// User is offline, increment attempts
+	s.deliveryFailures.Add(1)
 	return s.incrementMessageAttempts(msg.ID)
+}
+
+// DeliveryAttempts returns the total number of message delivery attempts since startup.
+func (s *Service) DeliveryAttempts() int64 {
+	return s.deliveryAttempts.Load()
+}
+
+// DeliveryFailures returns the number of delivery attempts where the user was offline.
+func (s *Service) DeliveryFailures() int64 {
+	return s.deliveryFailures.Load()
 }
 
 // ProcessNotifications processes pending notifications

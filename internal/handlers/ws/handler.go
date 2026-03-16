@@ -108,8 +108,13 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Register connection
-	h.realtimeSvc.RegisterConnection(tenant.TenantID, userID, conn)
+	// Register connection — enforces per-user connection cap
+	if err := h.realtimeSvc.RegisterConnection(tenant.TenantID, userID, conn); err != nil {
+		conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "connection limit reached"))
+		conn.Close()
+		return
+	}
 
 	// Send presence update
 	h.realtimeSvc.BroadcastPresenceUpdate(tenant.TenantID, userID, "online")

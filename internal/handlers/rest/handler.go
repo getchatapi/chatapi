@@ -53,8 +53,9 @@ func NewHandler(
 
 // RegisterRoutes registers all REST routes
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
-	// Health check
+	// Health check and metrics
 	mux.HandleFunc("GET /health", h.HandleHealth)
+	mux.HandleFunc("GET /metrics", h.HandleMetrics)
 
 	// Rooms
 	mux.HandleFunc("POST /rooms", h.HandleCreateRoom)
@@ -154,6 +155,20 @@ func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// HandleMetrics exposes operational counters for monitoring.
+// All values are process-lifetime totals (reset on restart) except active_connections.
+func (h *Handler) HandleMetrics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"active_connections":   h.realtimeSvc.ActiveConnections(),
+		"broadcast_drops":      h.realtimeSvc.DroppedBroadcasts(),
+		"messages_sent":        h.messageSvc.MessagesSent(),
+		"delivery_attempts":    h.deliverySvc.DeliveryAttempts(),
+		"delivery_failures":    h.deliverySvc.DeliveryFailures(),
+		"uptime_seconds":       int64(time.Since(h.startTime).Seconds()),
+	})
 }
 
 // testDatabaseWrite performs a simple write test on the database

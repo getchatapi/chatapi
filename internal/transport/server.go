@@ -57,6 +57,7 @@ func NewServer(
 
 	// Register public routes
 	mux.HandleFunc("/health", restHandler.HandleHealth)
+	mux.HandleFunc("/metrics", restHandler.HandleMetrics)
 	mux.HandleFunc("/ws", wsHandler.HandleConnection)
 
 	// Mount protected routes with auth middleware

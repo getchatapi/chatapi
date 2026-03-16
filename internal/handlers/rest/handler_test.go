@@ -35,7 +35,7 @@ func newTestHandler(t *testing.T) (*rest.Handler, *tenant.Service) {
 	tenantSvc := tenant.NewService(db.DB)
 	chatroomSvc := chatroom.NewService(db.DB)
 	messageSvc := message.NewService(db.DB)
-	realtimeSvc := realtime.NewService(db.DB)
+	realtimeSvc := realtime.NewService(db.DB, 5)
 	deliverySvc := delivery.NewService(db.DB, realtimeSvc)
 	notifSvc := notification.NewService(db.DB)
 
