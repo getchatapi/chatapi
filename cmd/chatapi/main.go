@@ -34,6 +34,10 @@ func main() {
 		slog.Error("Failed to load config", "error", err)
 		os.Exit(1)
 	}
+	if err := cfg.Validate(); err != nil {
+		slog.Error("Invalid configuration", "error", err)
+		os.Exit(1)
+	}
 
 	// Initialize database
 	database, err := db.New(cfg.DatabaseDSN)

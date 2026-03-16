@@ -39,7 +39,7 @@ func NewServer(
 	notifSvc := notification.NewService(db.DB)
 
 	restHandler := rest.NewHandler(tenantSvc, chatroomSvc, messageSvc, realtimeSvc, deliverySvc, notifSvc, cfg)
-	wsHandler := ws.NewHandler(tenantSvc, chatroomSvc, messageSvc, realtimeSvc)
+	wsHandler := ws.NewHandler(tenantSvc, chatroomSvc, messageSvc, realtimeSvc, cfg)
 
 	// Create mux and register routes
 	mux := http.NewServeMux()

@@ -1,8 +1,10 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -32,6 +34,10 @@ type Config struct {
 
 	// Admin configuration
 	MasterAPIKey         string
+
+	// WebSocket configuration
+	// Comma-separated list of allowed origins. Use "*" to allow all (dev only).
+	AllowedOrigins       []string
 }
 
 // Load loads configuration from environment variables with sensible defaults
@@ -48,9 +54,18 @@ func Load() (*Config, error) {
 		WorkerInterval:       getEnvAsDuration("WORKER_INTERVAL", 30*time.Second),
 		RetryInterval:        getEnvAsDuration("RETRY_INTERVAL", 30*time.Second),
 		MasterAPIKey:         getEnv("MASTER_API_KEY", ""),
+		AllowedOrigins:       getEnvAsStringSlice("WS_ALLOWED_ORIGINS"),
 	}
 
 	return cfg, nil
+}
+
+// Validate checks that required configuration values are set.
+func (c *Config) Validate() error {
+	if c.MasterAPIKey == "" {
+		return errors.New("MASTER_API_KEY must be set")
+	}
+	return nil
 }
 
 // getEnv gets an environment variable or returns a default value
@@ -69,6 +84,21 @@ func getEnvAsInt(key string, defaultValue int) int {
 		}
 	}
 	return defaultValue
+}
+
+// getEnvAsStringSlice gets a comma-separated environment variable as a string slice
+func getEnvAsStringSlice(key string) []string {
+	value := os.Getenv(key)
+	if value == "" {
+		return nil
+	}
+	var result []string
+	for _, s := range strings.Split(value, ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			result = append(result, s)
+		}
+	}
+	return result
 }
 
 // getEnvAsDuration gets an environment variable as time.Duration or returns a default value

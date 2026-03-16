@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/hastenr/chatapi/internal/config"
 	"github.com/hastenr/chatapi/internal/models"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/message"
@@ -14,19 +15,13 @@ import (
 	"github.com/hastenr/chatapi/internal/services/tenant"
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		// In production, implement proper origin checking
-		return true
-	},
-}
-
 // Handler handles WebSocket connections
 type Handler struct {
 	tenantSvc   *tenant.Service
 	chatroomSvc *chatroom.Service
 	messageSvc  *message.Service
 	realtimeSvc *realtime.Service
+	upgrader    websocket.Upgrader
 }
 
 // NewHandler creates a new WebSocket handler
@@ -35,25 +30,55 @@ func NewHandler(
 	chatroomSvc *chatroom.Service,
 	messageSvc *message.Service,
 	realtimeSvc *realtime.Service,
+	cfg *config.Config,
 ) *Handler {
+	allowedOrigins := cfg.AllowedOrigins
+
+	if len(allowedOrigins) == 0 {
+		slog.Warn("WS_ALLOWED_ORIGINS is not set — WebSocket connections will be rejected for browser clients sending an Origin header. Set to \"*\" to allow all origins (dev only).")
+	}
+
+	// Build a fast lookup set
+	originSet := make(map[string]struct{}, len(allowedOrigins))
+	for _, o := range allowedOrigins {
+		originSet[o] = struct{}{}
+	}
+
+	checkOrigin := func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		// Non-browser clients (server-to-server) don't send Origin — allow them.
+		if origin == "" {
+			return true
+		}
+		// Wildcard — dev/testing only, logged as a warning at startup above.
+		if _, ok := originSet["*"]; ok {
+			return true
+		}
+		if _, ok := originSet[origin]; ok {
+			return true
+		}
+		slog.Warn("WebSocket connection rejected: origin not allowed",
+			"origin", origin,
+			"remote_addr", r.RemoteAddr)
+		return false
+	}
+
 	return &Handler{
 		tenantSvc:   tenantSvc,
 		chatroomSvc: chatroomSvc,
 		messageSvc:  messageSvc,
 		realtimeSvc: realtimeSvc,
+		upgrader:    websocket.Upgrader{CheckOrigin: checkOrigin},
 	}
 }
 
 // HandleConnection handles WebSocket connections
 func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
-	// Extract authentication from headers or query params
+	// Extract authentication — API key must come from headers only (never query params)
 	apiKey := r.Header.Get("X-API-Key")
 	userID := r.Header.Get("X-User-Id")
 
-	// Fallback to query params for browser clients
-	if apiKey == "" {
-		apiKey = r.URL.Query().Get("api_key")
-	}
+	// user_id may come from query params (not a secret)
 	if userID == "" {
 		userID = r.URL.Query().Get("user_id")
 	}
@@ -77,7 +102,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Upgrade to WebSocket
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		slog.Error("Failed to upgrade connection", "error", err)
 		return

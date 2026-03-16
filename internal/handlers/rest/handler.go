@@ -374,9 +374,21 @@ func (h *Handler) HandleCreateTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return tenant details
+	// Return tenant details including the plaintext API key.
+	// This is the only time the key is returned — it cannot be recovered later.
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(tenant)
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(struct {
+		TenantID  string `json:"tenant_id"`
+		Name      string `json:"name"`
+		APIKey    string `json:"api_key"`
+		CreatedAt string `json:"created_at"`
+	}{
+		TenantID:  tenant.TenantID,
+		Name:      tenant.Name,
+		APIKey:    tenant.APIKey,
+		CreatedAt: tenant.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+	})
 }
 
 // HandleGetDeadLetters admin endpoint to get failed deliveries

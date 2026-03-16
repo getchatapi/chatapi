@@ -2,6 +2,7 @@ package tenant
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -36,18 +37,18 @@ func NewService(db *sql.DB) *Service {
 	}
 }
 
-// ValidateAPIKey validates an API key and returns the tenant
+// ValidateAPIKey validates an API key and returns the tenant.
+// The plaintext key is hashed before the DB lookup; the hash is never returned to callers.
 func (s *Service) ValidateAPIKey(apiKey string) (*models.Tenant, error) {
 	var tenant models.Tenant
 	query := `
-		SELECT tenant_id, api_key, name, config, created_at
+		SELECT tenant_id, name, config, created_at
 		FROM tenants
-		WHERE api_key = ?
+		WHERE api_key_hash = ?
 	`
 
-	err := s.db.QueryRow(query, apiKey).Scan(
+	err := s.db.QueryRow(query, hashAPIKey(apiKey)).Scan(
 		&tenant.TenantID,
-		&tenant.APIKey,
 		&tenant.Name,
 		&tenant.Config,
 		&tenant.CreatedAt,
@@ -84,17 +85,19 @@ func (s *Service) CreateTenant(name string) (*models.Tenant, error) {
 		return nil, fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	// Insert tenant
+	// Insert tenant — store the hash, not the plaintext key
 	query := `
-		INSERT INTO tenants (tenant_id, api_key, name, config)
+		INSERT INTO tenants (tenant_id, api_key_hash, name, config)
 		VALUES (?, ?, ?, ?)
 	`
-	_, err = s.db.Exec(query, tenantID, apiKey, name, string(configJSON))
+	_, err = s.db.Exec(query, tenantID, hashAPIKey(apiKey), name, string(configJSON))
 	if err != nil {
 		slog.Error("Failed to create tenant", "error", err)
 		return nil, fmt.Errorf("failed to create tenant: %w", err)
 	}
 
+	// APIKey is set to the plaintext value here — this is the only time it is
+	// returned. The caller must surface it to the admin; it cannot be recovered.
 	tenant := &models.Tenant{
 		TenantID: tenantID,
 		APIKey:   apiKey,
@@ -123,6 +126,13 @@ func generateRandomHex(length int) string {
 		panic("failed to generate random bytes")
 	}
 	return hex.EncodeToString(bytes)
+}
+
+// hashAPIKey returns the SHA-256 hex digest of a plaintext API key.
+// API keys are 32-byte random values, so a keyed hash is not required.
+func hashAPIKey(plaintext string) string {
+	sum := sha256.Sum256([]byte(plaintext))
+	return hex.EncodeToString(sum[:])
 }
 
 // GetTenantConfig returns the configuration for a tenant
@@ -177,9 +187,9 @@ func (s *Service) CheckRateLimit(tenantID string) error {
 	return nil
 }
 
-// ListTenants returns all tenants (admin operation)
+// ListTenants returns all tenants (admin operation). The API key hash is not included.
 func (s *Service) ListTenants() ([]*models.Tenant, error) {
-	query := `SELECT tenant_id, api_key, name, config, created_at FROM tenants ORDER BY created_at DESC`
+	query := `SELECT tenant_id, name, config, created_at FROM tenants ORDER BY created_at DESC`
 
 	rows, err := s.db.Query(query)
 	if err != nil {
@@ -192,7 +202,6 @@ func (s *Service) ListTenants() ([]*models.Tenant, error) {
 		var tenant models.Tenant
 		err := rows.Scan(
 			&tenant.TenantID,
-			&tenant.APIKey,
 			&tenant.Name,
 			&tenant.Config,
 			&tenant.CreatedAt,

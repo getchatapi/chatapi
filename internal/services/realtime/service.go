@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -13,13 +14,14 @@ import (
 
 // Service manages WebSocket connections and real-time messaging
 type Service struct {
-	mu           sync.RWMutex
-	db           *sql.DB
-	connections  map[string]map[string][]*websocket.Conn // tenant -> user -> connections
-	presence     map[string]map[string]time.Time         // tenant -> user -> last seen
-	broadcastCh  chan *broadcastMessage
-	shutdownCh   chan struct{}
-	shutdownOnce sync.Once
+	mu               sync.RWMutex
+	db               *sql.DB
+	connections      map[string]map[string][]*websocket.Conn // tenant -> user -> connections
+	presence         map[string]map[string]time.Time         // tenant -> user -> last seen
+	broadcastCh      chan *broadcastMessage
+	shutdownCh       chan struct{}
+	shutdownOnce     sync.Once
+	droppedBroadcasts atomic.Int64
 }
 
 type broadcastMessage struct {
@@ -113,18 +115,27 @@ func (s *Service) UnregisterConnection(tenantID, userID string, conn *websocket.
 		"remaining_connections", len(s.connections[tenantID][userID]))
 }
 
-// BroadcastToRoom broadcasts a message to all users in a room
+// BroadcastToRoom broadcasts a message to all users in a room.
+// If the broadcast channel is full the message is dropped — chat messages are
+// already persisted and will be delivered by the delivery worker, but ephemeral
+// events (typing, presence) will be lost. A running drop counter is logged so
+// operators can detect sustained channel saturation.
 func (s *Service) BroadcastToRoom(tenantID, roomID string, message interface{}) {
 	select {
-	case s.broadcastCh <- &broadcastMessage{
-		tenantID: tenantID,
-		roomID:   roomID,
-		message:  message,
-	}:
+	case s.broadcastCh <- &broadcastMessage{tenantID: tenantID, roomID: roomID, message: message}:
 	default:
-		slog.Warn("Broadcast channel full, dropping message",
+		dropped := s.droppedBroadcasts.Add(1)
+		msgType := ""
+		if m, ok := message.(map[string]interface{}); ok {
+			if t, ok := m["type"].(string); ok {
+				msgType = t
+			}
+		}
+		slog.Error("Broadcast channel full, message dropped",
 			"tenant_id", tenantID,
-			"room_id", roomID)
+			"room_id", roomID,
+			"message_type", msgType,
+			"dropped_total", dropped)
 	}
 }
 
@@ -327,7 +338,10 @@ func (s *Service) cleanupStalePresence() {
 
 	for tenantID, tenantPresence := range s.presence {
 		for userID, lastSeen := range tenantPresence {
-			if now.Sub(lastSeen) > staleThreshold && !s.IsUserOnline(tenantID, userID) {
+			// Check connections directly — do not call IsUserOnline, which would
+			// attempt to re-acquire s.mu and deadlock.
+			conns := s.connections[tenantID][userID]
+			if now.Sub(lastSeen) > staleThreshold && len(conns) == 0 {
 				delete(s.presence[tenantID], userID)
 				slog.Debug("Cleaned up stale presence",
 					"tenant_id", tenantID,
