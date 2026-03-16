@@ -214,18 +214,23 @@ Other users' typing status.
 
 ### Notifications
 
-Real-time notification delivery.
+Real-time notification delivery. Received when your user is a target of a `POST /notify` call — either by explicit `user_ids`, as a member of the target `room_id`, as a subscriber to the topic (via `topic_subscribers: true`), or as a fallback broadcast when no targets are specified.
 
 ```json
 {
   "type": "notification",
   "notification_id": "notif_ghi789",
   "topic": "order.shipped",
-  "payload": {
-    "order_id": "12345",
-    "tracking_number": "1Z999AA1234567890"
-  }
+  "payload": "{\"order_id\":\"12345\",\"tracking_number\":\"1Z999AA1234567890\"}",
+  "timestamp": 1734091800
 }
+```
+
+Subscribe to a topic to receive targeted notifications:
+
+```bash
+POST /subscriptions
+{ "topic": "order.shipped" }
 ```
 
 ### Server Shutdown
@@ -251,9 +256,11 @@ Graceful shutdown notification.
 
 ### On Disconnect
 
-1. **Presence Update**: Offline status broadcast (after 5s grace period)
-2. **Cleanup**: Connection removed from active connections
-3. **Persistence**: User state maintained for reconnection
+1. **Grace Period**: Server waits 5 seconds before broadcasting offline status (allows transparent reconnects)
+2. **Presence Update**: Offline status broadcast to room members after grace period
+3. **Stale Cleanup**: Presence entries older than 5 minutes are cleaned up by the background worker
+4. **Cleanup**: Connection removed from active connections
+5. **Persistence**: User state (last ack, delivery state) maintained for reconnection
 
 ### Reconnection
 
@@ -693,7 +700,7 @@ func main() {
 - **Single Connection**: Maintain one WebSocket connection per user
 - **Reconnection Logic**: Implement exponential backoff
 - **Graceful Shutdown**: Handle server shutdown messages
-- **Connection Pooling**: Avoid multiple connections for the same user (server enforces `MAX_CONNECTIONS_PER_USER`, default 5)
+- **Connection Pooling**: Avoid multiple connections for the same user (server enforces `WS_MAX_CONNECTIONS_PER_USER`, default 5 — excess connections are rejected with a policy violation close frame)
 
 ### Message Handling
 

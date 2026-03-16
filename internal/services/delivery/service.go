@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync/atomic"
@@ -212,15 +213,13 @@ func (s *Service) ProcessNotifications(tenantID string, limit int) error {
 		limit = 50
 	}
 
-	query := `
-		SELECT notification_id, tenant_id, topic, payload, attempts
+	rows, err := s.db.Query(`
+		SELECT notification_id, tenant_id, topic, payload, targets, attempts
 		FROM notifications
 		WHERE tenant_id = ? AND status IN ('pending', 'processing') AND attempts < ?
-		ORDER BY created_at ASC
-		LIMIT ?
-	`
-
-	rows, err := s.db.Query(query, tenantID, s.maxAttempts, limit)
+		ORDER BY created_at ASC LIMIT ?`,
+		tenantID, s.maxAttempts, limit,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to get pending notifications: %w", err)
 	}
@@ -228,18 +227,17 @@ func (s *Service) ProcessNotifications(tenantID string, limit int) error {
 
 	for rows.Next() {
 		var notif models.Notification
-		err := rows.Scan(
+		if err := rows.Scan(
 			&notif.NotificationID,
 			&notif.TenantID,
 			&notif.Topic,
 			&notif.Payload,
+			&notif.Targets,
 			&notif.Attempts,
-		)
-		if err != nil {
+		); err != nil {
 			slog.Error("Failed to scan notification", "error", err)
 			continue
 		}
-
 		if err := s.attemptNotificationDelivery(&notif); err != nil {
 			slog.Warn("Failed to deliver notification",
 				"tenant_id", tenantID,
@@ -253,13 +251,11 @@ func (s *Service) ProcessNotifications(tenantID string, limit int) error {
 	return nil
 }
 
-// attemptNotificationDelivery tries to deliver a notification
+// attemptNotificationDelivery delivers a notification to the appropriate recipients.
+// Delivery is scoped by targets: specific user IDs, room members, topic subscribers,
+// or all online users in the tenant when no targets are specified.
 func (s *Service) attemptNotificationDelivery(notif *models.Notification) error {
-	// For now, broadcast to all online users in the tenant
-	// In a more sophisticated implementation, you'd look up subscribers
-	// and send to specific users or endpoints
-
-	notificationPayload := map[string]interface{}{
+	payload := map[string]interface{}{
 		"type":            "notification",
 		"notification_id": notif.NotificationID,
 		"topic":           notif.Topic,
@@ -267,14 +263,80 @@ func (s *Service) attemptNotificationDelivery(notif *models.Notification) error 
 		"timestamp":       time.Now().Unix(),
 	}
 
-	// Get online users and send to them
-	onlineUsers := s.realtimeSvc.GetOnlineUsers(notif.TenantID)
-	for _, userID := range onlineUsers {
-		s.realtimeSvc.SendToUser(notif.TenantID, userID, notificationPayload)
+	recipients := s.resolveRecipients(notif)
+	for _, userID := range recipients {
+		s.realtimeSvc.SendToUser(notif.TenantID, userID, payload)
 	}
 
-	// Mark as delivered (simplified - in reality, you'd track per-user delivery)
 	return s.markNotificationDelivered(notif.NotificationID)
+}
+
+// resolveRecipients determines which online users should receive a notification.
+func (s *Service) resolveRecipients(notif *models.Notification) []string {
+	var targets models.NotificationTargets
+	if notif.Targets != "" {
+		if err := json.Unmarshal([]byte(notif.Targets), &targets); err != nil {
+			slog.Warn("Failed to parse notification targets, falling back to broadcast", "error", err)
+		}
+	}
+
+	seen := make(map[string]struct{})
+	var recipients []string
+	add := func(userID string) {
+		if _, ok := seen[userID]; !ok {
+			seen[userID] = struct{}{}
+			recipients = append(recipients, userID)
+		}
+	}
+
+	// Explicit user list
+	for _, uid := range targets.UserIDs {
+		add(uid)
+	}
+
+	// Room members
+	if targets.RoomID != "" {
+		if members, err := s.chatroomSvc.GetRoomMembers(notif.TenantID, targets.RoomID); err == nil {
+			for _, m := range members {
+				add(m.UserID)
+			}
+		}
+	}
+
+	// Topic subscribers
+	if targets.TopicSubscribers {
+		rows, err := s.db.Query(
+			`SELECT subscriber_id FROM notification_subscriptions WHERE tenant_id = ? AND topic = ?`,
+			notif.TenantID, notif.Topic,
+		)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var uid string
+				if rows.Scan(&uid) == nil {
+					add(uid)
+				}
+			}
+		}
+	}
+
+	// Fallback: broadcast to all online users when no targets specified
+	if len(recipients) == 0 {
+		return s.realtimeSvc.GetOnlineUsers(notif.TenantID)
+	}
+
+	// Filter to online users only
+	online := make(map[string]struct{})
+	for _, uid := range s.realtimeSvc.GetOnlineUsers(notif.TenantID) {
+		online[uid] = struct{}{}
+	}
+	var online_recipients []string
+	for _, uid := range recipients {
+		if _, ok := online[uid]; ok {
+			online_recipients = append(online_recipients, uid)
+		}
+	}
+	return online_recipients
 }
 
 // CleanupOldEntries removes old delivered entries to prevent unbounded growth

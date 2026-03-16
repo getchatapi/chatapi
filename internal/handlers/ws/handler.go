@@ -252,7 +252,7 @@ func (h *Handler) handleSendMessage(tenantID, userID string, data interface{}) e
 	}
 
 	// Broadcast to realtime subscribers
-	h.realtimeSvc.BroadcastToRoom(tenantID, roomID, map[string]interface{}{
+	broadcast := map[string]interface{}{
 		"type":       "message",
 		"room_id":    roomID,
 		"seq":        message.Seq,
@@ -260,7 +260,11 @@ func (h *Handler) handleSendMessage(tenantID, userID string, data interface{}) e
 		"sender_id":  message.SenderID,
 		"content":    message.Content,
 		"created_at": message.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-	})
+	}
+	if message.Meta != "" {
+		broadcast["meta"] = message.Meta
+	}
+	h.realtimeSvc.BroadcastToRoom(tenantID, roomID, broadcast)
 
 	go h.deliverySvc.HandleNewMessage(tenantID, roomID, message)
 

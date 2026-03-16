@@ -61,6 +61,9 @@ func NewServer(
 	protectedMux.HandleFunc("GET /rooms/{room_id}/messages", restHandler.AuthMiddleware(restHandler.HandleGetMessages))
 	protectedMux.HandleFunc("POST /acks", restHandler.AuthMiddleware(restHandler.HandleAck))
 	protectedMux.HandleFunc("POST /notify", restHandler.AuthMiddleware(restHandler.HandleNotify))
+	protectedMux.HandleFunc("POST /subscriptions", restHandler.AuthMiddleware(restHandler.HandleSubscribe))
+	protectedMux.HandleFunc("GET /subscriptions", restHandler.AuthMiddleware(restHandler.HandleListSubscriptions))
+	protectedMux.HandleFunc("DELETE /subscriptions/{id}", restHandler.AuthMiddleware(restHandler.HandleUnsubscribe))
 	protectedMux.HandleFunc("POST /ws/token", restHandler.AuthMiddleware(restHandler.HandleWSToken))
 	protectedMux.HandleFunc("GET /admin/dead-letters", restHandler.AuthMiddleware(restHandler.HandleGetDeadLetters))
 

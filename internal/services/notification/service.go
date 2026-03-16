@@ -23,42 +23,37 @@ func NewService(db *sql.DB) *Service {
 
 // CreateNotification creates a new durable notification
 func (s *Service) CreateNotification(tenantID string, req *models.CreateNotificationRequest) (*models.Notification, error) {
-	// Generate notification ID
 	notificationID := generateNotificationID()
 
-	// Marshal payload
 	payloadJSON, err := json.Marshal(req.Payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	// Insert notification
-	query := `
-		INSERT INTO notifications (notification_id, tenant_id, topic, payload, status)
-		VALUES (?, ?, ?, ?, 'pending')
-	`
+	targetsJSON, err := json.Marshal(req.Targets)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal targets: %w", err)
+	}
 
-	_, err = s.db.Exec(query, notificationID, tenantID, req.Topic, string(payloadJSON))
+	_, err = s.db.Exec(
+		`INSERT INTO notifications (notification_id, tenant_id, topic, payload, targets, status) VALUES (?, ?, ?, ?, ?, 'pending')`,
+		notificationID, tenantID, req.Topic, string(payloadJSON), string(targetsJSON),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create notification: %w", err)
 	}
 
-	notification := &models.Notification{
+	slog.Info("Created notification", "tenant_id", tenantID, "notification_id", notificationID, "topic", req.Topic)
+
+	return &models.Notification{
 		NotificationID: notificationID,
 		TenantID:       tenantID,
 		Topic:          req.Topic,
 		Payload:        string(payloadJSON),
+		Targets:        string(targetsJSON),
 		Status:         "pending",
-		Attempts:       0,
 		CreatedAt:      time.Now(),
-	}
-
-	slog.Info("Created notification",
-		"tenant_id", tenantID,
-		"notification_id", notificationID,
-		"topic", req.Topic)
-
-	return notification, nil
+	}, nil
 }
 
 // GetPendingNotifications gets notifications ready for delivery
@@ -170,6 +165,63 @@ func (s *Service) GetNotificationSubscribers(tenantID, topic string) ([]*models.
 	}
 
 	return subscribers, nil
+}
+
+// Subscribe subscribes a user to a notification topic
+func (s *Service) Subscribe(tenantID, subscriberID, topic string) (*models.NotificationSubscription, error) {
+	result, err := s.db.Exec(
+		`INSERT INTO notification_subscriptions (tenant_id, subscriber_id, topic) VALUES (?, ?, ?)`,
+		tenantID, subscriberID, topic,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to subscribe: %w", err)
+	}
+	id, _ := result.LastInsertId()
+	return &models.NotificationSubscription{
+		ID:           int(id),
+		TenantID:     tenantID,
+		SubscriberID: subscriberID,
+		Topic:        topic,
+		CreatedAt:    time.Now(),
+	}, nil
+}
+
+// Unsubscribe removes a subscription owned by the given user
+func (s *Service) Unsubscribe(tenantID, subscriberID string, id int) error {
+	result, err := s.db.Exec(
+		`DELETE FROM notification_subscriptions WHERE id = ? AND tenant_id = ? AND subscriber_id = ?`,
+		id, tenantID, subscriberID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to unsubscribe: %w", err)
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("subscription not found")
+	}
+	return nil
+}
+
+// GetUserSubscriptions returns all subscriptions for a user
+func (s *Service) GetUserSubscriptions(tenantID, subscriberID string) ([]*models.NotificationSubscription, error) {
+	rows, err := s.db.Query(
+		`SELECT id, tenant_id, subscriber_id, topic, endpoint, metadata, created_at
+		 FROM notification_subscriptions WHERE tenant_id = ? AND subscriber_id = ? ORDER BY created_at DESC`,
+		tenantID, subscriberID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get subscriptions: %w", err)
+	}
+	defer rows.Close()
+
+	var subs []*models.NotificationSubscription
+	for rows.Next() {
+		var sub models.NotificationSubscription
+		if err := rows.Scan(&sub.ID, &sub.TenantID, &sub.SubscriberID, &sub.Topic, &sub.Endpoint, &sub.Metadata, &sub.CreatedAt); err != nil {
+			return nil, err
+		}
+		subs = append(subs, &sub)
+	}
+	return subs, rows.Err()
 }
 
 // GetFailedNotifications retrieves notifications that have failed delivery

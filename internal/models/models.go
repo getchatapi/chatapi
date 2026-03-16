@@ -68,13 +68,14 @@ type UndeliveredMessage struct {
 
 // Notification represents a durable notification
 type Notification struct {
-	NotificationID string    `json:"notification_id" db:"notification_id"`
-	TenantID       string    `json:"tenant_id" db:"tenant_id"`
-	Topic          string    `json:"topic" db:"topic"`
-	Payload        string    `json:"payload" db:"payload"` // JSON payload
-	CreatedAt      time.Time `json:"created_at" db:"created_at"`
-	Status         string    `json:"status" db:"status"` // pending, processing, delivered, failed, dead
-	Attempts       int       `json:"attempts" db:"attempts"`
+	NotificationID string     `json:"notification_id" db:"notification_id"`
+	TenantID       string     `json:"tenant_id" db:"tenant_id"`
+	Topic          string     `json:"topic" db:"topic"`
+	Payload        string     `json:"payload" db:"payload"` // JSON payload
+	Targets        string     `json:"targets,omitempty" db:"targets"` // JSON-encoded NotificationTargets
+	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
+	Status         string     `json:"status" db:"status"` // pending, processing, delivered, failed, dead
+	Attempts       int        `json:"attempts" db:"attempts"`
 	LastAttemptAt  *time.Time `json:"last_attempt_at,omitempty" db:"last_attempt_at"`
 }
 

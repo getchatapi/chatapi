@@ -167,16 +167,23 @@ Click the "Try it out" button on any endpoint to:
 For WebSocket testing, you'll need a WebSocket client. Here are some options:
 
 ### Browser Console
-```javascript
-// Connect to WebSocket
-const ws = new WebSocket('ws://localhost:8080/ws?api_key=YOUR_KEY&user_id=YOUR_USER');
 
-// Handle messages
+Browsers cannot set custom headers on WebSocket connections. Use the token exchange flow:
+
+```javascript
+// Step 1: get a short-lived token via REST
+const { token } = await fetch('http://localhost:8080/ws/token', {
+  method: 'POST',
+  headers: { 'X-API-Key': 'YOUR_KEY', 'X-User-Id': 'YOUR_USER' }
+}).then(r => r.json());
+
+// Step 2: connect with the token (valid 60s, one-time use)
+const ws = new WebSocket(`ws://localhost:8080/ws?token=${token}`);
+
 ws.onmessage = (event) => {
   console.log('Received:', JSON.parse(event.data));
 };
 
-// Send a message
 ws.onopen = () => {
   ws.send(JSON.stringify({
     type: 'send_message',

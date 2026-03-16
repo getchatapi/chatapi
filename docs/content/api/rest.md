@@ -260,6 +260,61 @@ POST /notify
 }
 ```
 
+## Notification Subscriptions
+
+Users subscribe to topics to receive notifications sent with `"topic_subscribers": true`.
+
+### Subscribe to a Topic
+
+```http
+POST /subscriptions
+```
+
+**Request Body:**
+```json
+{
+  "topic": "order.shipped"
+}
+```
+
+**Response (`201`):**
+```json
+{
+  "id": 1,
+  "subscriber_id": "user1",
+  "topic": "order.shipped",
+  "created_at": "2025-12-13T12:00:00Z"
+}
+```
+
+### List Subscriptions
+
+```http
+GET /subscriptions
+```
+
+**Response:**
+```json
+{
+  "subscriptions": [
+    {
+      "id": 1,
+      "subscriber_id": "user1",
+      "topic": "order.shipped",
+      "created_at": "2025-12-13T12:00:00Z"
+    }
+  ]
+}
+```
+
+### Unsubscribe
+
+```http
+DELETE /subscriptions/{id}
+```
+
+**Response:** `204 No Content`
+
 ## WebSocket Tokens
 
 ### Issue WebSocket Token
@@ -306,10 +361,13 @@ GET /health
 ```json
 {
   "status": "ok",
+  "service": "chatapi",
   "uptime": "2h30m45s",
   "db_writable": true
 }
 ```
+
+Returns `503 Service Unavailable` with `"status": "error"` if the database is not writable.
 
 ### Server Metrics
 
@@ -326,7 +384,7 @@ GET /metrics
   "messages_sent": 18340,
   "delivery_attempts": 21005,
   "delivery_failures": 12,
-  "dropped_broadcasts": 3,
+  "broadcast_drops": 3,
   "uptime_seconds": 86400
 }
 ```
@@ -336,7 +394,7 @@ GET /metrics
 - `messages_sent` — total messages sent since server start
 - `delivery_attempts` — total background delivery attempts
 - `delivery_failures` — deliveries that failed permanently (see dead-letter queue)
-- `dropped_broadcasts` — broadcasts dropped due to slow consumers
+- `broadcast_drops` — broadcasts dropped due to a full send buffer (slow consumer)
 - `uptime_seconds` — server uptime in seconds
 
 ## Admin Endpoints
@@ -379,22 +437,18 @@ X-Master-Key: your-master-api-key
 
 **Security Note:** The `api_key` is returned **only in this response**. It is stored as a SHA-256 hash in the database — the plaintext can never be retrieved again. Copy it immediately and store it securely (e.g. in a secrets manager).
 
-### Dead Letters (Admin)
+### Dead Letters
 
-View failed deliveries (admin endpoint).
+View failed message and notification deliveries for the authenticated tenant.
 
 ```http
-GET /admin/dead-letters?tenant_id=tenant_abc&limit=100
+GET /admin/dead-letters?limit=100
 ```
 
-**Authentication:**
-```
-X-Master-Key: your-master-api-key
-```
+**Authentication:** Standard `X-API-Key` header. The tenant is determined from the API key.
 
 **Query Parameters:**
-- `tenant_id` (required): Tenant identifier
-- `limit` (optional): Maximum results (default: 50, max: 1000)
+- `limit` (optional): Maximum results (default: 100, max: 1000)
 
 **Response:**
 ```json
@@ -463,15 +517,9 @@ All endpoints may return these error formats:
 
 ChatAPI implements per-tenant rate limiting:
 
-- **Default Limit**: 100 requests per second per tenant
-- **Response Headers**:
-  ```
-  X-RateLimit-Limit: 100
-  X-RateLimit-Remaining: 95
-  X-RateLimit-Reset: 1640995200
-  ```
-- **429 Status**: Returned when limits are exceeded
-- **Retry-After Header**: Indicates when to retry
+- **Default Limit**: 100 requests per second per tenant (configurable via `DEFAULT_RATE_LIMIT`)
+- **429 Status**: Returned when the limit is exceeded
+- **`Retry-After: 60`** response header is set on 429 responses
 
 ## Content Types
 

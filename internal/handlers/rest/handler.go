@@ -258,7 +258,7 @@ func (h *Handler) HandleSendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Broadcast to realtime subscribers
-	h.realtimeSvc.BroadcastToRoom(tenantID, roomID, map[string]interface{}{
+	broadcast := map[string]interface{}{
 		"type":       "message",
 		"room_id":    roomID,
 		"seq":        message.Seq,
@@ -266,7 +266,11 @@ func (h *Handler) HandleSendMessage(w http.ResponseWriter, r *http.Request) {
 		"sender_id":  message.SenderID,
 		"content":    message.Content,
 		"created_at": message.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-	})
+	}
+	if message.Meta != "" {
+		broadcast["meta"] = message.Meta
+	}
+	h.realtimeSvc.BroadcastToRoom(tenantID, roomID, broadcast)
 
 	go h.deliverySvc.HandleNewMessage(tenantID, roomID, message)
 
@@ -462,6 +466,83 @@ func (h *Handler) HandleGetUserRooms(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"rooms": rooms})
+}
+
+// HandleSubscribe subscribes the authenticated user to a notification topic
+func (h *Handler) HandleSubscribe(w http.ResponseWriter, r *http.Request) {
+	tenantID := h.getTenantID(r)
+	userID := h.requireUserID(w, r)
+	if userID == "" {
+		return
+	}
+
+	var req struct {
+		Topic string `json:"topic"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.Topic == "" {
+		http.Error(w, "topic is required", http.StatusBadRequest)
+		return
+	}
+
+	sub, err := h.notifSvc.Subscribe(tenantID, userID, req.Topic)
+	if err != nil {
+		slog.Error("Failed to subscribe", "error", err, "tenant_id", tenantID, "user_id", userID)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(sub)
+}
+
+// HandleUnsubscribe removes a notification subscription by ID
+func (h *Handler) HandleUnsubscribe(w http.ResponseWriter, r *http.Request) {
+	tenantID := h.getTenantID(r)
+	userID := h.requireUserID(w, r)
+	if userID == "" {
+		return
+	}
+
+	idStr := r.PathValue("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid subscription ID", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.notifSvc.Unsubscribe(tenantID, userID, id); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// HandleListSubscriptions lists the authenticated user's notification subscriptions
+func (h *Handler) HandleListSubscriptions(w http.ResponseWriter, r *http.Request) {
+	tenantID := h.getTenantID(r)
+	userID := h.requireUserID(w, r)
+	if userID == "" {
+		return
+	}
+
+	subs, err := h.notifSvc.GetUserSubscriptions(tenantID, userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if subs == nil {
+		subs = []*models.NotificationSubscription{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"subscriptions": subs})
 }
 
 // HandleWSToken issues a short-lived WebSocket token for browser clients

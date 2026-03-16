@@ -62,7 +62,7 @@ export LOG_LEVEL="info"
 export WS_ALLOWED_ORIGINS="*"
 
 # Maximum concurrent WebSocket connections per user
-export MAX_CONNECTIONS_PER_USER=5
+export WS_MAX_CONNECTIONS_PER_USER=5
 ```
 
 ### Configuration Options
@@ -75,7 +75,7 @@ export MAX_CONNECTIONS_PER_USER=5
 | `LOG_LEVEL` | `info` | Logging level (`debug`, `info`, `warn`, `error`) |
 | `DEFAULT_RATE_LIMIT` | `100` | Requests per second per tenant |
 | `WS_ALLOWED_ORIGINS` | *(none)* | Comma-separated allowed origins for WebSocket connections and REST CORS headers (e.g. `https://app.example.com`). Use `*` for dev only. Unset = reject all browser-origin connections |
-| `MAX_CONNECTIONS_PER_USER` | `5` | Maximum concurrent WebSocket connections per user |
+| `WS_MAX_CONNECTIONS_PER_USER` | `5` | Maximum concurrent WebSocket connections per user |
 | `DATA_DIR` | `/var/chatapi` | Directory for data files |
 | `LOG_DIR` | `/var/log/chatapi` | Directory for log files |
 | `WORKER_INTERVAL` | `30s` | Background worker interval |
@@ -111,6 +111,7 @@ Expected response:
 ```json
 {
   "status": "ok",
+  "service": "chatapi",
   "uptime": "1m30s",
   "db_writable": true
 }
