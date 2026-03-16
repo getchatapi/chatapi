@@ -65,9 +65,10 @@ ChatAPI follows a service-oriented architecture with clear separation of concern
 ## 🔐 **Security Model**
 
 ### Authentication
-- **API Keys**: Tenant-level authentication via `X-API-Key` header
+- **API Keys**: Tenant-level authentication via `X-API-Key` header only (never in query params — they appear in server logs)
+- **API Key Storage**: SHA-256 hashes stored in the database; plaintext keys are returned exactly once at creation time and cannot be recovered
 - **User Context**: User identification via `X-User-Id` header
-- **WebSocket Auth**: Header or query parameter authentication
+- **WebSocket Auth**: Header-based only (`X-API-Key`, `X-User-Id`)
 - **No Sessions**: Stateless authentication for horizontal scaling
 
 ### Authorization
@@ -84,7 +85,7 @@ ChatAPI follows a service-oriented architecture with clear separation of concern
 -- Tenants (multi-tenant isolation)
 CREATE TABLE tenants (
   tenant_id TEXT PRIMARY KEY,
-  api_key TEXT UNIQUE NOT NULL,
+  api_key_hash TEXT UNIQUE NOT NULL,  -- SHA-256 of plaintext key; never stored in plain
   name TEXT,
   config JSON,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -252,9 +253,10 @@ CREATE INDEX idx_notifications_status ON notifications(tenant_id, status, create
 ## 🔧 **Operational Aspects**
 
 ### Monitoring
-- **Health Endpoints**: `/health` for service status
-- **Metrics**: Structured JSON logging
-- **Admin Endpoints**: `/admin/dead-letters` for debugging
+- **Health Endpoint**: `GET /health` — service status and DB writability
+- **Metrics Endpoint**: `GET /metrics` — live counters: `active_connections`, `messages_sent`, `broadcast_drops`, `delivery_attempts`, `delivery_failures`, `uptime_seconds`
+- **Structured Logging**: JSON log output via `slog`
+- **Admin Endpoints**: `GET /admin/dead-letters` for failed delivery inspection
 
 ### Configuration
 - **Environment Variables**: Runtime configuration
@@ -300,6 +302,95 @@ CREATE INDEX idx_notifications_status ON notifications(tenant_id, status, create
 - **Database Replication**: Cross-region data synchronization
 - **CDN**: Static asset delivery
 - **Global Load Balancing**: Geographic request routing
+
+---
+
+## ⚠️ **Known Limitations**
+
+These are deliberate design trade-offs in v0.x. They are documented here so operators can plan accordingly.
+
+### Single-Process WebSocket Registry
+
+The in-memory WebSocket connection registry (`realtime.Service`) is local to a single process. Running multiple instances behind a load balancer **will not** deliver messages to users connected to a different instance — a user on instance A will not receive a broadcast sent via instance B.
+
+**Impact**: ChatAPI is currently a single-instance deployment. This is by design for simplicity.
+
+**Workaround**: Pin WebSocket connections to a single instance using sticky sessions (consistent hashing on `user_id` at the load balancer level).
+
+**Future path**: Adding a pub/sub layer (Redis Pub/Sub or NATS) would allow fan-out across instances without changing the API surface.
+
+### SQLite Concurrency Ceiling
+
+SQLite with WAL mode supports high read concurrency but serialises all writes through a single writer connection. This is appropriate for most single-instance deployments but will become a bottleneck at very high write rates (sustained thousands of messages/second).
+
+**Future path**: The service interface is designed so storage backends can be swapped. PostgreSQL support is planned.
+
+### No TLS Termination
+
+ChatAPI binds HTTP only. TLS must be handled by a reverse proxy in front of the service. See the [TLS guide](#tls--https) below.
+
+---
+
+## 🔒 **TLS / HTTPS**
+
+ChatAPI does not handle TLS directly. Terminate TLS at a reverse proxy and forward to the service over localhost HTTP.
+
+### Caddy (recommended — automatic HTTPS)
+
+```
+your.domain.com {
+    reverse_proxy localhost:8080
+}
+```
+
+### nginx
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name your.domain.com;
+
+    ssl_certificate     /etc/ssl/certs/your.crt;
+    ssl_certificate_key /etc/ssl/private/your.key;
+
+    location / {
+        proxy_pass         http://localhost:8080;
+        proxy_http_version 1.1;
+
+        # Required for WebSocket upgrade
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host       $host;
+    }
+}
+```
+
+### Docker with Caddy
+
+```yaml
+services:
+  chatapi:
+    image: hastenr/chatapi:latest
+    environment:
+      MASTER_API_KEY: "${MASTER_API_KEY}"
+    volumes:
+      - chatapi-data:/var/chatapi
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy-data:/data
+
+volumes:
+  chatapi-data:
+  caddy-data:
+```
 
 ---
 

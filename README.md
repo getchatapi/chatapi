@@ -3,7 +3,7 @@
 A lightweight, multitenant chat service built in Go with SQLite, WebSocket support, and durable message delivery.
 
 [![Documentation](https://img.shields.io/badge/docs-hugo-blue)](https://hastenr.github.io/chatapi/)
-[![Go Version](https://img.shields.io/badge/go-1.21+-blue)](https://golang.org/)
+[![Go Version](https://img.shields.io/badge/go-1.22+-blue)](https://golang.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![GitHub release (latest by date)](https://img.shields.io/github/v/release/hastenr/chatapi)](https://github.com/hastenr/chatapi/releases)
 [![Docker Image Version (latest by date)](https://img.shields.io/docker/v/hastenr/chatapi)](https://hub.docker.com/r/hastenr/chatapi)
@@ -43,7 +43,7 @@ docker run -p 8080:8080 -e MASTER_API_KEY=your-key hastenr/chatapi
 
 ### Prerequisites
 
-- Go 1.21+
+- Go 1.22+
 - SQLite3 (optional, for CGO builds)
 
 ### Installation
@@ -126,11 +126,13 @@ cd docs && hugo server
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `MASTER_API_KEY` | *(required)* | Master API key for admin operations — server will not start without this |
 | `LISTEN_ADDR` | `:8080` | Server listen address |
 | `DATABASE_DSN` | `file:chatapi.db?_journal_mode=WAL&_busy_timeout=5000` | SQLite database DSN |
-| `LOG_LEVEL` | `info` | Logging level (debug, info, warn, error) |
+| `LOG_LEVEL` | `info` | Logging level (`debug`, `info`, `warn`, `error`) |
 | `DEFAULT_RATE_LIMIT` | `100` | Requests per second per tenant |
-| `MASTER_API_KEY` | `` | Master API key for admin operations (required for tenant creation) |
+| `WS_ALLOWED_ORIGINS` | *(none)* | Comma-separated allowed WebSocket origins. Use `*` for dev only |
+| `WS_MAX_CONNECTIONS_PER_USER` | `5` | Max concurrent WebSocket connections per user |
 | `DATA_DIR` | `/var/chatapi` | Directory for data files |
 | `LOG_DIR` | `/var/log/chatapi` | Directory for log files |
 | `WORKER_INTERVAL` | `30s` | Background worker interval |

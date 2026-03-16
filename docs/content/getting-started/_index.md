@@ -11,7 +11,7 @@ Welcome to ChatAPI! This guide will help you get up and running with your own ch
 
 Before you begin, ensure you have the following installed:
 
-- **Go 1.21 or later** - [Download from golang.org](https://golang.org/dl/)
+- **Go 1.22 or later** - [Download from golang.org](https://golang.org/dl/) (required for enhanced `net/http` routing)
 - **Git** - For cloning the repository
 - **SQLite3** (optional) - For CGO builds with native SQLite driver
 
@@ -65,9 +65,11 @@ export LOG_LEVEL="info"
 |----------|---------|-------------|
 | `LISTEN_ADDR` | `:8080` | Server listen address |
 | `DATABASE_DSN` | `file:chatapi.db?_journal_mode=WAL&_busy_timeout=5000` | SQLite database connection string |
-| `MASTER_API_KEY` | `` | Master API key for admin operations (required for tenant creation) |
-| `LOG_LEVEL` | `info` | Logging level (debug, info, warn, error) |
+| `MASTER_API_KEY` | *(required)* | Master API key for admin operations — server will not start without this |
+| `LOG_LEVEL` | `info` | Logging level (`debug`, `info`, `warn`, `error`) |
 | `DEFAULT_RATE_LIMIT` | `100` | Requests per second per tenant |
+| `WS_ALLOWED_ORIGINS` | *(none)* | Comma-separated allowed WebSocket origins (e.g. `https://app.example.com`). Use `*` for dev only. Unset = reject all browser-origin connections |
+| `WS_MAX_CONNECTIONS_PER_USER` | `5` | Maximum concurrent WebSocket connections per user |
 | `DATA_DIR` | `/var/chatapi` | Directory for data files |
 | `LOG_DIR` | `/var/log/chatapi` | Directory for log files |
 | `WORKER_INTERVAL` | `30s` | Background worker interval |
