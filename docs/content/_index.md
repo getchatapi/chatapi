@@ -6,60 +6,74 @@ weight = 1
 
 # ChatAPI
 
-A lightweight, multitenant chat service built in Go with SQLite, WebSocket support, and durable message delivery.
+A self-hostable, multitenant messaging and notifications service built in Go — real-time WebSocket delivery, durable store-and-forward, and topic-based push notifications, all in a single binary with SQLite.
 
-## 🚀 **Key Features**
+## Key Features
 
-- **Multitenant Architecture**: API key-based tenancy with per-tenant rate limiting
-- **Real-time Messaging**: WebSocket connections for instant chat delivery
-- **Durable Delivery**: Store-then-send with at-least-once guarantees and retry logic
-- **Message Sequencing**: Per-room message ordering with client acknowledgments
-- **Room Types**: Support for DMs, groups, and channels
-- **SQLite Backend**: WAL mode for concurrent reads/writes
-- **Graceful Shutdown**: Clean connection draining and state persistence
+- **Multitenant** — API key-based tenancy, per-tenant rate limiting, full data isolation
+- **Real-time Messaging** — WebSocket connections for instant message delivery with typing indicators and presence
+- **Durable Delivery** — Store-then-send with at-least-once guarantees, per-user ACKs, and automatic retry
+- **Notifications** — Topic-based push notifications delivered over WebSocket; users subscribe to topics, your backend publishes events
+- **Notification Subscriptions** — Users subscribe to topics via REST; notifications are routed to subscribers, specific users, room members, or all online users
+- **Outbound Webhooks** — Offline message delivery to your backend via configurable webhook URLs
+- **Room Metadata** — Attach arbitrary JSON to rooms (listing IDs, order IDs, etc.) surfaced on every room object and webhook payload
+- **Room Types** — DMs, groups, and channels
+- **Message Sequencing** — Per-room ordered sequences with client acknowledgment tracking
+- **TypeScript SDK** — [`@hastenr/chatapi-sdk`](https://www.npmjs.com/package/@hastenr/chatapi-sdk) for browser and Node.js with built-in WebSocket reconnection
+- **SQLite Backend** — WAL mode, periodic checkpointing, zero external dependencies
 
-## 📖 **Quick Start**
+## Quick Start
 
 ### Prerequisites
-- Go 1.21+
-- SQLite3 (optional, for CGO builds)
 
-### Installation
+- Go 1.22+
+- `MASTER_API_KEY` environment variable (required — server will not start without it)
+
+### Run from source
+
 ```bash
-# Clone the repository
 git clone https://github.com/hastenr/chatapi.git
 cd chatapi
-
-# Install dependencies
 go mod download
-
-# Build the binary
 go build -o bin/chatapi ./cmd/chatapi
-```
 
-### Run
-```bash
-# Set environment variables
+export MASTER_API_KEY="your-secure-master-key"
 export LISTEN_ADDR=":8080"
-export DATABASE_DSN="file:chatapi.db?_journal_mode=WAL&_busy_timeout=5000"
-
-# Start the server
 ./bin/chatapi
 ```
 
-## 📚 **Documentation Sections**
+### Run with Docker
 
-- [Getting Started](/getting-started/) - Installation and basic setup
-- [API Reference](/api/) - REST and WebSocket API documentation
-- [Guides](/guides/) - Advanced usage and integration guides
-- [Architecture](/architecture/) - System design and database schema
+```bash
+docker run -d \
+  -p 8080:8080 \
+  -e MASTER_API_KEY=your-secure-master-key \
+  -v chatapi-data:/data \
+  hastenr/chatapi:latest
+```
 
-## 🔗 **Links**
+### Create your first tenant
 
-- [GitHub Repository](https://github.com/hastenr/chatapi)
-- [Go Package Documentation](https://pkg.go.dev/github.com/hastenr/chatapi)
-- [Issues & Feature Requests](https://github.com/hastenr/chatapi/issues)
+```bash
+curl -X POST http://localhost:8080/admin/tenants \
+  -H "X-Master-Key: your-secure-master-key" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "MyApp"}'
+```
 
----
+The response includes an `api_key`. **This is the only time the plaintext key is returned** — store it immediately.
 
-**ChatAPI** is designed for modern chat applications requiring reliable, real-time messaging with multi-tenant support. Built with performance and simplicity in mind.
+## Documentation
+
+- [Getting Started](/getting-started/) — Installation, configuration, and first steps
+- [REST API](/api/rest/) — HTTP endpoints reference
+- [WebSocket API](/api/websocket/) — Real-time event reference
+- [API Playground](/api/playground/) — Interactive Swagger UI
+- [Architecture](/architecture/) — System design and database schema
+
+## Links
+
+- [GitHub](https://github.com/hastenr/chatapi)
+- [npm SDK](https://www.npmjs.com/package/@hastenr/chatapi-sdk)
+- [Issues](https://github.com/hastenr/chatapi/issues)
+- [Docker Hub](https://hub.docker.com/r/hastenr/chatapi)

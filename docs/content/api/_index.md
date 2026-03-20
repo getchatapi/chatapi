@@ -5,136 +5,116 @@ weight: 20
 
 # API Reference
 
-ChatAPI provides both REST and WebS### SDKs and Libraries
-
-**Coming Soon**: Official SDKs for popular languages APIs for building chat applications. All APIs require authentication via API keys and support multi-tenant operation.
+ChatAPI provides REST and WebSocket APIs for messaging and notifications. All endpoints require authentication and return JSON.
 
 ## Authentication
 
-All API requests require authentication headers:
+### Standard endpoints
 
 ```
 X-API-Key: <your-tenant-api-key>
 X-User-Id: <user-identifier>
 ```
 
-- **X-API-Key**: Identifies your tenant (organization)
-- **X-User-Id**: Identifies the user performing the action
+- **X-API-Key** — Identifies your tenant. Keys are stored as SHA-256 hashes; the plaintext is returned only once at tenant creation.
+- **X-User-Id** — Identifies the user making the request.
 
-**Admin Operations**: System administration endpoints require:
+### Admin endpoints
 
 ```
 X-Master-Key: <your-master-api-key>
 ```
 
-- **X-Master-Key**: Master key for tenant creation and admin operations
+Used only for `POST /admin/tenants`. Set via `MASTER_API_KEY` env var.
 
-## API Overview
+## REST API
 
-ChatAPI provides both REST and WebSocket APIs for building chat applications. All APIs require authentication and return JSON responses.
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/rooms` | List rooms the user belongs to |
+| `POST` | `/rooms` | Create a room (DM, group, or channel) |
+| `GET` | `/rooms/{room_id}` | Get room details |
+| `GET` | `/rooms/{room_id}/members` | List room members |
+| `POST` | `/rooms/{room_id}/messages` | Send a message |
+| `GET` | `/rooms/{room_id}/messages` | Get messages (paginated) |
+| `POST` | `/acks` | Acknowledge message delivery |
+| `POST` | `/notify` | Send a notification to users or topic subscribers |
+| `POST` | `/subscriptions` | Subscribe the authenticated user to a notification topic |
+| `GET` | `/subscriptions` | List the user's notification subscriptions |
+| `DELETE` | `/subscriptions/{id}` | Unsubscribe |
+| `POST` | `/ws/token` | Issue a short-lived WebSocket token (browser clients) |
+| `GET` | `/health` | Service health check |
+| `GET` | `/metrics` | Live server counters |
+| `POST` | `/admin/tenants` | Create a tenant (`X-Master-Key` required) |
+| `GET` | `/admin/dead-letters` | View failed deliveries |
 
-### REST API
+## WebSocket API
 
-Traditional HTTP endpoints for chat operations:
+Connect to `/ws` with either:
 
-- **Rooms**: Create, list, and manage chat rooms
-- **Messages**: Send and retrieve messages
-- **Delivery**: Acknowledge message delivery
-- **Notifications**: Send notifications to users
-- **Admin**: Tenant management and system administration
-- **Health**: Service health monitoring
+- **Token** (browser): `GET /ws?token=<ws-token>` — obtain via `POST /ws/token` first
+- **Header** (Node.js / server): pass `X-API-Key` + `X-User-Id` in the WebSocket upgrade request
 
-### WebSocket API
+### Client → Server events
 
-Real-time bidirectional communication:
+| `type` | Description |
+|--------|-------------|
+| `send_message` | Send a message to a room |
+| `ack` | Acknowledge messages up to a sequence number |
+| `typing` | Broadcast typing start/stop |
 
-- **Connection**: Persistent WebSocket connections
-- **Events**: Real-time message delivery
-- **Presence**: User online/offline status
-- **Typing**: Typing indicators
-- **ACKs**: Message acknowledgments
+### Server → Client events
 
-## Base URL
+| `type` | Description |
+|--------|-------------|
+| `message` | New message in a room |
+| `ack.received` | Another user acknowledged messages |
+| `typing` | Another user's typing status |
+| `presence.update` | User came online or went offline |
+| `notification` | Topic-based notification delivered to subscriber |
+| `server.shutdown` | Server is restarting — reconnect after `reconnect_after_ms` ms |
 
+## SDK
+
+The official TypeScript SDK is available on npm:
+
+```bash
+npm install @hastenr/chatapi-sdk
 ```
-https://your-chatapi-instance.com
+
+```typescript
+import { ChatAPI } from '@hastenr/chatapi-sdk';
+
+const client = new ChatAPI({
+  baseURL: 'https://your-chatapi.com',
+  apiKey: 'your-api-key',
+  userId: 'user123',
+  displayName: 'Alice',
+});
+
+await client.connect();
+
+// Messaging
+client.on('message', (ev) => console.log(ev.content));
+client.sendMessage('room_abc', 'Hello!');
+
+// Notifications
+await client.subscriptions.subscribe('order.updates');
+client.on('notification', (ev) => {
+  const payload = JSON.parse(ev.payload);
+  console.log(payload.message);
+});
 ```
 
-## Response Format
-
-All API responses use JSON format:
-
-```json
-{
-  "success": true,
-  "data": { ... },
-  "error": null
-}
-```
-
-Error responses:
-
-```json
-{
-  "success": false,
-  "data": null,
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "Invalid request parameters"
-  }
-}
-```
+See the [npm page](https://www.npmjs.com/package/@hastenr/chatapi-sdk) for the full SDK reference.
 
 ## Rate Limiting
 
-ChatAPI implements per-tenant rate limiting:
+- Default: 100 requests/second per tenant (configurable via `DEFAULT_RATE_LIMIT`)
+- Exceeded requests return `429` with a `Retry-After: 60` header
 
-- **Default**: 100 requests per second per tenant
-- **Headers**: Rate limit status included in responses
-- **429 Status**: Returned when limits exceeded
+## Reference
 
-## Error Codes
-
-| Code | Description |
-|------|-------------|
-| `VALIDATION_ERROR` | Invalid request parameters |
-| `AUTHENTICATION_ERROR` | Invalid or missing API key |
-| `AUTHORIZATION_ERROR` | Insufficient permissions |
-| `NOT_FOUND` | Resource not found |
-| `RATE_LIMIT_EXCEEDED` | Rate limit exceeded |
-| `INTERNAL_ERROR` | Server internal error |
-
-## SDKs and Libraries
-
-{{< hint info >}}
-**Coming Soon**: Official SDKs for popular languages
-{{< /hint >}}
-
-### Community Libraries
-
-- [chatapi-js](https://github.com/example/chatapi-js) - JavaScript/TypeScript SDK
-- [chatapi-python](https://github.com/example/chatapi-python) - Python SDK
-- [chatapi-go](https://github.com/example/chatapi-go) - Go SDK
-
-## API Versions
-
-ChatAPI uses semantic versioning for API changes:
-
-- **v1** (current): Initial stable API
-- Breaking changes will introduce new major versions
-
-## Testing
-
-Use the built-in API playground or tools like:
-
-- **curl**: Command-line testing
-- **Postman**: GUI API testing
-- **Insomnia**: Alternative to Postman
-- **Swagger UI**: Interactive API documentation
-
-## Next Steps
-
-- [REST API Reference](/api/rest/) - Complete REST endpoint documentation
-- [WebSocket API Reference](/api/websocket/) - Real-time API documentation
-- [API Examples](/api/examples/) - Code samples and use cases
-
+- [REST API Reference](/api/rest/) — Full endpoint documentation with examples
+- [WebSocket API Reference](/api/websocket/) — Full event reference
+- [API Playground](/api/playground/) — Interactive Swagger UI
