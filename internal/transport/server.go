@@ -101,17 +101,27 @@ func corsMiddleware(allowedOrigins []string, next http.Handler) http.Handler {
 		originSet[o] = struct{}{}
 	}
 
+	_, wildcard := originSet["*"]
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin != "" {
-			_, wildcard := originSet["*"]
-			_, allowed := originSet[origin]
-			if wildcard || allowed || len(allowedOrigins) == 0 {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-API-Key, X-User-Id, X-Master-Key")
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+
+		var allowOrigin string
+		if wildcard {
+			// Always emit wildcard — works even when proxies strip the Origin header
+			allowOrigin = "*"
+		} else if origin != "" {
+			if _, ok := originSet[origin]; ok || len(allowedOrigins) == 0 {
+				allowOrigin = origin
 			}
 		}
+
+		if allowOrigin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-API-Key, X-User-Id, X-Master-Key")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		}
+
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
