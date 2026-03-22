@@ -59,7 +59,7 @@ export DATA_DIR="./data"
 export LOG_LEVEL="info"
 
 # CORS and WebSocket origin allowlist (use * for local dev only)
-export WS_ALLOWED_ORIGINS="*"
+export ALLOWED_ORIGINS="*"
 
 # Maximum concurrent WebSocket connections per user
 export WS_MAX_CONNECTIONS_PER_USER=5
@@ -74,7 +74,7 @@ export WS_MAX_CONNECTIONS_PER_USER=5
 | `MASTER_API_KEY` | *(required)* | Master API key for admin operations — server will not start without this |
 | `LOG_LEVEL` | `info` | Logging level (`debug`, `info`, `warn`, `error`) |
 | `DEFAULT_RATE_LIMIT` | `100` | Requests per second per tenant |
-| `WS_ALLOWED_ORIGINS` | *(none)* | Comma-separated allowed origins for WebSocket connections and REST CORS headers (e.g. `https://app.example.com`). Use `*` for dev only. Unset = reject all browser-origin connections |
+| `ALLOWED_ORIGINS` | *(none)* | Comma-separated allowed origins for WebSocket connections and REST CORS headers (e.g. `https://app.example.com`). Use `*` for dev only. Unset = reject all browser-origin connections |
 | `WS_MAX_CONNECTIONS_PER_USER` | `5` | Maximum concurrent WebSocket connections per user |
 | `DATA_DIR` | `/var/chatapi` | Directory for data files |
 | `LOG_DIR` | `/var/log/chatapi` | Directory for log files |

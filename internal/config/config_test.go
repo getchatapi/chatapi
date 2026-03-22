@@ -10,7 +10,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("LISTEN_ADDR", "")
 	t.Setenv("MASTER_API_KEY", "")
 	t.Setenv("DEFAULT_RATE_LIMIT", "")
-	t.Setenv("WS_ALLOWED_ORIGINS", "")
+	t.Setenv("ALLOWED_ORIGINS", "")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -53,7 +53,7 @@ func TestLoad_EnvOverridesDefaults(t *testing.T) {
 }
 
 func TestLoad_AllowedOriginsFromEnv(t *testing.T) {
-	t.Setenv("WS_ALLOWED_ORIGINS", "https://app.example.com, https://admin.example.com")
+	t.Setenv("ALLOWED_ORIGINS", "https://app.example.com, https://admin.example.com")
 
 	cfg, err := config.Load()
 	if err != nil {

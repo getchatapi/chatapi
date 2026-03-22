@@ -722,4 +722,4 @@ func main() {
 - **Token Flow**: Use `POST /ws/token` for browser clients — never expose API keys in URLs
 - **Input Validation**: Validate all incoming messages
 - **Rate Limiting**: Respect server rate limits
-- **CORS**: Configure `WS_ALLOWED_ORIGINS` on the server to restrict which browser origins may connect
+- **CORS**: Configure `ALLOWED_ORIGINS` on the server to restrict which browser origins may connect

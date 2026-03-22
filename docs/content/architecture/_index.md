@@ -79,7 +79,7 @@ ChatAPI follows a service-oriented architecture with clear separation of concern
 
 ### CORS
 
-CORS headers for REST responses and WebSocket origin checks are both controlled by the `WS_ALLOWED_ORIGINS` environment variable. Set it to a comma-separated list of allowed origins (e.g. `https://app.example.com,https://admin.example.com`). Use `*` during local development only. When unset, browser-origin connections are rejected.
+CORS headers for REST responses and WebSocket origin checks are both controlled by the `ALLOWED_ORIGINS` environment variable. Set it to a comma-separated list of allowed origins (e.g. `https://app.example.com,https://admin.example.com`). Use `*` during local development only. When unset, browser-origin connections are rejected.
 
 ## 💾 **Database Schema**
 

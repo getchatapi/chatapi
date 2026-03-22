@@ -38,7 +38,7 @@ func NewHandler(
 	allowedOrigins := cfg.AllowedOrigins
 
 	if len(allowedOrigins) == 0 {
-		slog.Warn("WS_ALLOWED_ORIGINS is not set — WebSocket connections will be rejected for browser clients sending an Origin header. Set to \"*\" to allow all origins (dev only).")
+		slog.Warn("ALLOWED_ORIGINS is not set — WebSocket connections will be rejected for browser clients sending an Origin header. Set to \"*\" to allow all origins (dev only).")
 	}
 
 	// Build a fast lookup set

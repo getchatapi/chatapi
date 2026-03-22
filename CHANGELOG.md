@@ -13,12 +13,12 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - API keys are now stored as SHA-256 hashes in the database (`api_key_hash` column). Plaintext keys are returned exactly once at creation time and cannot be recovered. Tenants created with v0.1.0 must be re-created after upgrading.
 - Removed WebSocket `api_key` query parameter fallback — API keys must be supplied via the `X-API-Key` header only. Query parameters appear in server access logs.
 - Server now refuses to start if `MASTER_API_KEY` is unset (previously defaulted to empty string, making admin endpoints unprotected).
-- WebSocket origin checking is now enforced. Configure allowed origins via `WS_ALLOWED_ORIGINS` (comma-separated). Use `*` for development only.
+- WebSocket origin checking is now enforced. Configure allowed origins via `ALLOWED_ORIGINS` (comma-separated). Use `*` for development only.
 
 ### Added
 - `GET /metrics` endpoint exposing operational counters: `active_connections`, `messages_sent`, `broadcast_drops`, `delivery_attempts`, `delivery_failures`, `uptime_seconds`.
 - `WS_MAX_CONNECTIONS_PER_USER` config option (default `5`). Connections beyond the limit receive a `1008 Policy Violation` close frame.
-- `WS_ALLOWED_ORIGINS` config option for WebSocket origin validation.
+- `ALLOWED_ORIGINS` config option for WebSocket origin validation.
 
 ### Fixed
 - Deadlock in `cleanupStalePresence`: calling `IsUserOnline` while holding the write lock caused a hang. Fixed by inlining the connection check.

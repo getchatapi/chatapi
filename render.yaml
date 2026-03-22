@@ -11,7 +11,7 @@ services:
         value: "file:/data/chatapi.db?_journal_mode=WAL&_busy_timeout=5000"
       - key: MASTER_API_KEY
         generateValue: true
-      - key: WS_ALLOWED_ORIGINS
+      - key: ALLOWED_ORIGINS
         value: "*"
       - key: DEFAULT_RATE_LIMIT
         value: "100"
