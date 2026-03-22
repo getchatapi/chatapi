@@ -251,6 +251,17 @@ func (s *Service) ProcessNotifications(tenantID string, limit int) error {
 	return nil
 }
 
+// DeliverNow immediately delivers a notification to online subscribers.
+// It is called by the HTTP handler after creating a notification so that
+// recipients do not have to wait for the next worker tick.
+func (s *Service) DeliverNow(notif *models.Notification) {
+	if err := s.attemptNotificationDelivery(notif); err != nil {
+		slog.Warn("Immediate notification delivery failed",
+			"notification_id", notif.NotificationID,
+			"error", err)
+	}
+}
+
 // attemptNotificationDelivery delivers a notification to the appropriate recipients.
 // Delivery is scoped by targets: specific user IDs, room members, topic subscribers,
 // or all online users in the tenant when no targets are specified.

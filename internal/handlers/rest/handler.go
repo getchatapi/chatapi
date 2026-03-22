@@ -357,6 +357,9 @@ func (h *Handler) HandleNotify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Deliver immediately to online subscribers; the worker handles retries for the rest.
+	go h.deliverySvc.DeliverNow(notification)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(notification)
