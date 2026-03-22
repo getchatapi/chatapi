@@ -215,6 +215,10 @@ func (h *Handler) handleMessage(tenantID, userID string, msg *models.WSMessage) 
 		return h.handleTyping(tenantID, userID, msg.Data, "start")
 	case "typing.stop":
 		return h.handleTyping(tenantID, userID, msg.Data, "stop")
+	case "ping":
+		// Application-level keepalive. Receiving this resets the read deadline
+		// (handled by the read loop), so no response is needed.
+		return nil
 	default:
 		slog.Warn("Unknown message type", "type", msg.Type, "tenant_id", tenantID, "user_id", userID)
 		return nil
