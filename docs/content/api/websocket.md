@@ -232,6 +232,34 @@ POST /subscriptions
 { "topic": "order.shipped" }
 ```
 
+### Message Deleted
+
+Sent when a message is deleted via `DELETE /rooms/{room_id}/messages/{message_id}`. Clients should remove the message from their local state.
+
+```json
+{
+  "type": "message.deleted",
+  "room_id": "room_abc123",
+  "message_id": "msg_def456",
+  "seq": 44
+}
+```
+
+### Message Edited
+
+Sent when a message is edited via `PUT /rooms/{room_id}/messages/{message_id}`. Clients should update their local copy of the message.
+
+```json
+{
+  "type": "message.edited",
+  "room_id": "room_abc123",
+  "message_id": "msg_def456",
+  "seq": 44,
+  "sender_id": "user1",
+  "content": "Updated message content"
+}
+```
+
 ### Server Shutdown
 
 Graceful shutdown notification.

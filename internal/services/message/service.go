@@ -396,6 +396,41 @@ func (s *Service) DeleteMessage(tenantID, roomID, messageID, senderID string) (i
 	return seq, nil
 }
 
+// UpdateMessage updates the content of a message. Only the original sender may edit.
+// Returns the updated message so the caller can broadcast a message.edited event.
+func (s *Service) UpdateMessage(tenantID, roomID, messageID, senderID, newContent string) (*models.Message, error) {
+	var storedSenderID string
+	err := s.db.QueryRow(
+		`SELECT sender_id FROM messages WHERE tenant_id = ? AND chatroom_id = ? AND message_id = ?`,
+		tenantID, roomID, messageID,
+	).Scan(&storedSenderID)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("message not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to look up message: %w", err)
+	}
+	if storedSenderID != senderID {
+		return nil, fmt.Errorf("forbidden")
+	}
+
+	_, err = s.db.Exec(
+		`UPDATE messages SET content = ? WHERE tenant_id = ? AND chatroom_id = ? AND message_id = ?`,
+		newContent, tenantID, roomID, messageID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update message: %w", err)
+	}
+
+	slog.Info("Message edited",
+		"tenant_id", tenantID,
+		"room_id", roomID,
+		"message_id", messageID,
+		"sender_id", senderID)
+
+	return s.GetMessage(tenantID, messageID)
+}
+
 // generateMessageID generates a unique message ID
 func generateMessageID() string {
 	return uuid.New().String()

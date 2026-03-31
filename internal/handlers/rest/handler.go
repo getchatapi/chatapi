@@ -598,6 +598,80 @@ func (h *Handler) HandleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// HandleUpdateRoom updates a room's name and/or metadata.
+func (h *Handler) HandleUpdateRoom(w http.ResponseWriter, r *http.Request) {
+	tenantID := h.getTenantID(r)
+	roomID := r.PathValue("room_id")
+
+	var req models.UpdateRoomRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid_request", "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	room, err := h.chatroomSvc.UpdateRoom(tenantID, roomID, &req)
+	if err != nil {
+		if err.Error() == "room not found" {
+			writeError(w, "not_found", "Room not found", http.StatusNotFound)
+			return
+		}
+		slog.Error("Failed to update room", "error", err, "tenant_id", tenantID, "room_id", roomID)
+		writeError(w, "internal_error", "Failed to update room", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(room)
+}
+
+// HandleEditMessage updates the content of a message. Only the original sender may edit.
+func (h *Handler) HandleEditMessage(w http.ResponseWriter, r *http.Request) {
+	tenantID := h.getTenantID(r)
+	userID := h.requireUserID(w, r)
+	if userID == "" {
+		return
+	}
+
+	roomID := r.PathValue("room_id")
+	messageID := r.PathValue("message_id")
+
+	var req models.UpdateMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid_request", "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.Content == "" {
+		writeError(w, "invalid_request", "content is required", http.StatusBadRequest)
+		return
+	}
+
+	msg, err := h.messageSvc.UpdateMessage(tenantID, roomID, messageID, userID, req.Content)
+	if err != nil {
+		switch err.Error() {
+		case "message not found":
+			writeError(w, "not_found", "Message not found", http.StatusNotFound)
+		case "forbidden":
+			writeError(w, "forbidden", "You can only edit your own messages", http.StatusForbidden)
+		default:
+			slog.Error("Failed to edit message", "error", err, "tenant_id", tenantID, "message_id", messageID)
+			writeError(w, "internal_error", "Failed to edit message", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	h.realtimeSvc.BroadcastToRoom(tenantID, roomID, map[string]interface{}{
+		"type":       "message.edited",
+		"room_id":    roomID,
+		"message_id": messageID,
+		"content":    msg.Content,
+		"seq":        msg.Seq,
+		"sender_id":  msg.SenderID,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(msg)
+}
+
 // HandleWSToken issues a short-lived WebSocket token for browser clients
 func (h *Handler) HandleWSToken(w http.ResponseWriter, r *http.Request) {
 	tenantID := h.getTenantID(r)

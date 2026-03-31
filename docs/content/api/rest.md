@@ -122,6 +122,32 @@ GET /rooms/{room_id}
 }
 ```
 
+### Update Room
+
+Update a room's name and/or metadata. Only the fields you include are changed — omitting a field leaves it unchanged.
+
+```http
+PATCH /rooms/{room_id}
+```
+
+**Request Body:**
+```json
+{
+  "name": "New Room Name",
+  "metadata": "{\"listing_id\":\"lst_99\"}"
+}
+```
+
+Both fields are optional. Send only the ones you want to change.
+
+**Response:** Updated room object (same shape as Get Room).
+
+**Status Codes:**
+- `200` - Room updated
+- `400` - Invalid request
+- `401` - Authentication failed
+- `404` - Room not found
+
 ### List Room Members
 
 Get all members of a room.
@@ -204,6 +230,46 @@ GET /rooms/{room_id}/messages?after_seq=40&limit=50
   ]
 }
 ```
+
+### Delete Message
+
+Permanently delete a message. Only the original sender may delete their own messages. All room members receive a `message.deleted` WebSocket event.
+
+```http
+DELETE /rooms/{room_id}/messages/{message_id}
+```
+
+**Response:** `204 No Content`
+
+**Status Codes:**
+- `204` - Deleted
+- `401` - Authentication failed
+- `403` - Not the original sender
+- `404` - Message not found
+
+### Edit Message
+
+Update the content of a message. Only the original sender may edit their own messages. All room members receive a `message.edited` WebSocket event.
+
+```http
+PUT /rooms/{room_id}/messages/{message_id}
+```
+
+**Request Body:**
+```json
+{
+  "content": "Updated message content"
+}
+```
+
+**Response:** Updated message object (same shape as in Get Messages).
+
+**Status Codes:**
+- `200` - Message updated
+- `400` - Missing or empty content
+- `401` - Authentication failed
+- `403` - Not the original sender
+- `404` - Message not found
 
 ## Delivery & Acknowledgments
 
@@ -476,39 +542,31 @@ GET /admin/dead-letters?limit=100
 
 ## Error Responses
 
-All endpoints may return these error formats:
+All error responses use this JSON shape:
 
-**Validation Error:**
 ```json
 {
-  "success": false,
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "Invalid room type. Must be one of: dm, group, channel",
-    "field": "type"
-  }
+  "error": "error_code",
+  "message": "Human-readable description"
 }
 ```
 
-**Authentication Error:**
-```json
-{
-  "success": false,
-  "error": {
-    "code": "AUTHENTICATION_ERROR",
-    "message": "Invalid API key"
-  }
-}
-```
+Common error codes:
 
-**Rate Limit Exceeded:**
+| Code | HTTP Status | Meaning |
+|---|---|---|
+| `unauthorized` | 401 | Missing or invalid `X-API-Key` |
+| `invalid_request` | 400 | Validation failed (missing field, bad JSON, etc.) |
+| `not_found` | 404 | Resource does not exist |
+| `forbidden` | 403 | Action not permitted for this user |
+| `rate_limit_exceeded` | 429 | Per-tenant rate limit hit |
+| `internal_error` | 500 | Unexpected server error |
+
+**Example:**
 ```json
 {
-  "success": false,
-  "error": {
-    "code": "RATE_LIMIT_EXCEEDED",
-    "message": "Rate limit exceeded. Try again in 60 seconds"
-  }
+  "error": "not_found",
+  "message": "Room not found"
 }
 ```
 

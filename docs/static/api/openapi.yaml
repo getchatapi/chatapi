@@ -30,6 +30,14 @@ info:
     Tokens are single-use and expire after 60 seconds.
 
     > **Security note**: The `?api_key=` query parameter was removed as a security fix (query params appear in server logs). Do not attempt to authenticate via that method.
+
+    ## Error Responses
+
+    All errors return a JSON body with this shape:
+
+    ```json
+    { "error": "error_code", "message": "Human-readable description" }
+    ```
   version: 1.0.0
   contact:
     name: ChatAPI Team
@@ -62,12 +70,21 @@ paths:
                   status:
                     type: string
                     example: "ok"
+                  service:
+                    type: string
+                    example: "chatapi"
                   uptime:
                     type: string
                     example: "2h30m45s"
                   db_writable:
                     type: boolean
                     example: true
+        '503':
+          description: Database not writable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /metrics:
     get:
@@ -98,7 +115,7 @@ paths:
                     type: integer
                     description: Total delivery attempts that failed permanently
                     example: 12
-                  dropped_broadcasts:
+                  broadcast_drops:
                     type: integer
                     description: Broadcast messages dropped due to slow consumers
                     example: 3
@@ -158,11 +175,7 @@ paths:
       summary: Get room
       description: Retrieve room information.
       parameters:
-        - name: room_id
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/RoomID'
       responses:
         '200':
           description: Room information
@@ -175,34 +188,68 @@ paths:
         '404':
           $ref: '#/components/responses/NotFoundError'
 
+    patch:
+      summary: Update room
+      description: Update a room's name and/or metadata. Only provided fields are changed; omitting a field leaves it unchanged.
+      parameters:
+        - $ref: '#/components/parameters/RoomID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  nullable: true
+                  example: "New Room Name"
+                metadata:
+                  type: string
+                  nullable: true
+                  description: Arbitrary JSON string
+                  example: '{"listing_id":"lst_99"}'
+      responses:
+        '200':
+          description: Updated room
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Room'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
   /rooms/{room_id}/members:
     get:
       summary: List room members
       description: Get all members of a room.
       parameters:
-        - name: room_id
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/RoomID'
       responses:
         '200':
           description: Room members
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    user_id:
-                      type: string
-                    role:
-                      type: string
-                      default: "member"
-                    joined_at:
-                      type: string
-                      format: date-time
+                type: object
+                properties:
+                  members:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        user_id:
+                          type: string
+                        role:
+                          type: string
+                          default: "member"
+                        joined_at:
+                          type: string
+                          format: date-time
         '401':
           $ref: '#/components/responses/AuthenticationError'
         '404':
@@ -213,11 +260,7 @@ paths:
       summary: Send message
       description: Send a message to a room.
       parameters:
-        - name: room_id
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/RoomID'
       requestBody:
         required: true
         content:
@@ -241,15 +284,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  message_id:
-                    type: string
-                  seq:
-                    type: integer
-                  created_at:
-                    type: string
-                    format: date-time
+                $ref: '#/components/schemas/Message'
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -259,15 +294,12 @@ paths:
 
     get:
       summary: Get messages
-      description: Retrieve messages from a room.
+      description: Retrieve messages from a room with optional cursor-based pagination.
       parameters:
-        - name: room_id
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/RoomID'
         - name: after_seq
           in: query
+          description: Return only messages with seq greater than this value
           schema:
             type: integer
             minimum: 0
@@ -284,11 +316,65 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Message'
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Message'
         '401':
           $ref: '#/components/responses/AuthenticationError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /rooms/{room_id}/messages/{message_id}:
+    delete:
+      summary: Delete message
+      description: Permanently delete a message. Only the original sender may delete their own messages. Broadcasts a `message.deleted` WebSocket event to the room.
+      parameters:
+        - $ref: '#/components/parameters/RoomID'
+        - $ref: '#/components/parameters/MessageID'
+      responses:
+        '204':
+          description: Message deleted
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+        '403':
+          $ref: '#/components/responses/AuthorizationError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    put:
+      summary: Edit message
+      description: Update the content of a message. Only the original sender may edit their own messages. Broadcasts a `message.edited` WebSocket event to the room.
+      parameters:
+        - $ref: '#/components/parameters/RoomID'
+        - $ref: '#/components/parameters/MessageID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - content
+              properties:
+                content:
+                  type: string
+                  example: "Edited message content"
+      responses:
+        '200':
+          description: Updated message
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+        '403':
+          $ref: '#/components/responses/AuthorizationError'
         '404':
           $ref: '#/components/responses/NotFoundError'
 
@@ -315,21 +401,13 @@ paths:
       responses:
         '200':
           description: Acknowledgment processed
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
         '401':
           $ref: '#/components/responses/AuthenticationError'
 
   /notify:
     post:
       summary: Send notification
-      description: Send a notification to users or room members.
+      description: Send a notification to users or room members. Delivered immediately to online targets; persisted for retry if `durable_notifications` is enabled.
       requestBody:
         required: true
         content:
@@ -339,7 +417,6 @@ paths:
               required:
                 - topic
                 - payload
-                - targets
               properties:
                 topic:
                   type: string
@@ -376,6 +453,70 @@ paths:
                     format: date-time
         '401':
           $ref: '#/components/responses/AuthenticationError'
+
+  /subscriptions:
+    get:
+      summary: List subscriptions
+      description: List all notification topic subscriptions for the authenticated user.
+      responses:
+        '200':
+          description: User subscriptions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  subscriptions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NotificationSubscription'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+
+    post:
+      summary: Subscribe to topic
+      description: Subscribe the authenticated user to a notification topic. They will receive notifications sent with `topic_subscribers: true` for this topic.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - topic
+              properties:
+                topic:
+                  type: string
+                  example: "order.shipped"
+      responses:
+        '201':
+          description: Subscription created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSubscription'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+
+  /subscriptions/{id}:
+    delete:
+      summary: Unsubscribe
+      description: Remove a notification topic subscription by ID.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Subscription removed
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
 
   /ws/token:
     post:
@@ -441,7 +582,7 @@ paths:
                   api_key:
                     type: string
                     description: Plaintext API key — returned once only. Store it immediately.
-                    example: "sk_abc123def456ghi789jkl012mno345pqr678stu901vwx"
+                    example: "a1b2c3d4e5f6..."
                   created_at:
                     type: string
                     format: date-time
@@ -455,22 +596,15 @@ paths:
   /admin/dead-letters:
     get:
       summary: Get dead letters
-      description: View failed deliveries (admin endpoint).
-      security:
-        - MasterKeyAuth: []
+      description: View failed message and notification deliveries for the authenticated tenant.
       parameters:
-        - name: tenant_id
-          in: query
-          required: true
-          schema:
-            type: string
         - name: limit
           in: query
           schema:
             type: integer
             minimum: 1
             maximum: 1000
-            default: 50
+            default: 100
       responses:
         '200':
           description: Dead letter entries
@@ -495,8 +629,6 @@ paths:
                         last_attempt_at:
                           type: string
                           format: date-time
-                        error:
-                          type: string
                   failed_notifications:
                     type: array
                     items:
@@ -511,12 +643,26 @@ paths:
                         last_attempt_at:
                           type: string
                           format: date-time
-                        error:
-                          type: string
         '401':
           $ref: '#/components/responses/AuthenticationError'
 
 components:
+  parameters:
+    RoomID:
+      name: room_id
+      in: path
+      required: true
+      schema:
+        type: string
+      example: "room_abc123"
+    MessageID:
+      name: message_id
+      in: path
+      required: true
+      schema:
+        type: string
+      example: "msg_def456"
+
   securitySchemes:
     ApiKeyAuth:
       type: apiKey
@@ -545,10 +691,6 @@ components:
           type: string
           enum: [dm, group, channel]
           example: "dm"
-        unique_key:
-          type: string
-          nullable: true
-          example: "dm:user1:user2"
         name:
           type: string
           nullable: true
@@ -613,24 +755,31 @@ components:
           type: string
           format: date-time
 
+    NotificationSubscription:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        subscriber_id:
+          type: string
+          example: "user1"
+        topic:
+          type: string
+          example: "order.shipped"
+        created_at:
+          type: string
+          format: date-time
+
     Error:
       type: object
       properties:
-        success:
-          type: boolean
-          example: false
         error:
-          type: object
-          properties:
-            code:
-              type: string
-              example: "VALIDATION_ERROR"
-            message:
-              type: string
-              example: "Invalid request parameters"
-            field:
-              type: string
-              example: "type"
+          type: string
+          example: "not_found"
+        message:
+          type: string
+          example: "Room not found"
 
   responses:
     ValidationError:
@@ -639,6 +788,9 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          example:
+            error: "invalid_request"
+            message: "content is required"
 
     AuthenticationError:
       description: Authentication failed
@@ -646,6 +798,9 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          example:
+            error: "unauthorized"
+            message: "Invalid API key"
 
     AuthorizationError:
       description: Insufficient permissions
@@ -653,6 +808,9 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          example:
+            error: "forbidden"
+            message: "You can only delete your own messages"
 
     NotFoundError:
       description: Resource not found
@@ -660,6 +818,9 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          example:
+            error: "not_found"
+            message: "Room not found"
 
     RateLimitError:
       description: Rate limit exceeded
@@ -667,6 +828,9 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          example:
+            error: "rate_limit_exceeded"
+            message: "Too many requests"
 
     InternalError:
       description: Server internal error
@@ -674,3 +838,6 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          example:
+            error: "internal_error"
+            message: "An unexpected error occurred"

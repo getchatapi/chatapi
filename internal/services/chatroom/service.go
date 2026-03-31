@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 
 	"github.com/hastenr/chatapi/internal/models"
 	"github.com/google/uuid"
@@ -311,6 +312,44 @@ func (s *Service) GetUserRooms(tenantID, userID string) ([]*models.Room, error) 
 	}
 
 	return rooms, rows.Err()
+}
+
+// UpdateRoom updates a room's name and/or metadata. Nil pointer fields are left unchanged.
+func (s *Service) UpdateRoom(tenantID, roomID string, req *models.UpdateRoomRequest) (*models.Room, error) {
+	var setParts []string
+	var args []interface{}
+
+	if req.Name != nil {
+		setParts = append(setParts, "name = ?")
+		args = append(args, *req.Name)
+	}
+	if req.Metadata != nil {
+		setParts = append(setParts, "metadata = ?")
+		args = append(args, *req.Metadata)
+	}
+
+	if len(setParts) == 0 {
+		return s.GetRoom(tenantID, roomID)
+	}
+
+	args = append(args, tenantID, roomID)
+	query := "UPDATE rooms SET " + strings.Join(setParts, ", ") + " WHERE tenant_id = ? AND room_id = ?"
+
+	result, err := s.db.Exec(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update room: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if rows == 0 {
+		return nil, fmt.Errorf("room not found")
+	}
+
+	slog.Info("Updated room", "tenant_id", tenantID, "room_id", roomID)
+	return s.GetRoom(tenantID, roomID)
 }
 
 // generateRoomID generates a unique room ID

@@ -285,10 +285,33 @@ When a message arrives for a user who has no active WebSocket connection, ChatAP
 
 The webhook is delivered with a short timeout and retried with exponential backoff up to `RETRY_MAX_ATTEMPTS` times. Failed webhook deliveries appear in the dead-letter queue (`GET /admin/dead-letters`).
 
-Configure `webhook_url` per tenant in the tenant's `config` JSON:
+Configure `webhook_url` (and optionally `webhook_secret`) per tenant in the tenant's `config` JSON:
 
 ```json
-{ "webhook_url": "https://your-app.example.com/chatapi-webhook" }
+{
+  "webhook_url": "https://your-app.example.com/chatapi-webhook",
+  "webhook_secret": "your-secret"
+}
+```
+
+**Webhook signing:** If `webhook_secret` is set, every webhook request includes an `X-ChatAPI-Signature` header containing an HMAC-SHA256 signature of the request body:
+
+```
+X-ChatAPI-Signature: sha256=<hex-digest>
+```
+
+Verify this header in your webhook handler to confirm the request originated from ChatAPI and was not tampered with:
+
+```javascript
+const crypto = require('crypto');
+
+function verifySignature(body, signature, secret) {
+  const expected = 'sha256=' + crypto
+    .createHmac('sha256', secret)
+    .update(body)
+    .digest('hex');
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+}
 ```
 
 ## 📊 **Performance Characteristics**

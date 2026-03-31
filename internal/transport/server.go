@@ -56,9 +56,12 @@ func NewServer(
 	protectedMux.HandleFunc("GET /rooms", restHandler.AuthMiddleware(restHandler.HandleGetUserRooms))
 	protectedMux.HandleFunc("POST /rooms", restHandler.AuthMiddleware(restHandler.HandleCreateRoom))
 	protectedMux.HandleFunc("GET /rooms/{room_id}", restHandler.AuthMiddleware(restHandler.HandleGetRoom))
+	protectedMux.HandleFunc("PATCH /rooms/{room_id}", restHandler.AuthMiddleware(restHandler.HandleUpdateRoom))
 	protectedMux.HandleFunc("GET /rooms/{room_id}/members", restHandler.AuthMiddleware(restHandler.HandleGetRoomMembers))
 	protectedMux.HandleFunc("POST /rooms/{room_id}/messages", restHandler.AuthMiddleware(restHandler.HandleSendMessage))
 	protectedMux.HandleFunc("GET /rooms/{room_id}/messages", restHandler.AuthMiddleware(restHandler.HandleGetMessages))
+	protectedMux.HandleFunc("DELETE /rooms/{room_id}/messages/{message_id}", restHandler.AuthMiddleware(restHandler.HandleDeleteMessage))
+	protectedMux.HandleFunc("PUT /rooms/{room_id}/messages/{message_id}", restHandler.AuthMiddleware(restHandler.HandleEditMessage))
 	protectedMux.HandleFunc("POST /acks", restHandler.AuthMiddleware(restHandler.HandleAck))
 	protectedMux.HandleFunc("POST /notify", restHandler.AuthMiddleware(restHandler.HandleNotify))
 	protectedMux.HandleFunc("POST /subscriptions", restHandler.AuthMiddleware(restHandler.HandleSubscribe))
@@ -119,7 +122,7 @@ func corsMiddleware(allowedOrigins []string, next http.Handler) http.Handler {
 		if allowOrigin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-API-Key, X-User-Id, X-Master-Key")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		}
 
 		if r.Method == http.MethodOptions {

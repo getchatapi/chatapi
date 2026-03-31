@@ -92,6 +92,18 @@ type NotificationSubscription struct {
 
 // API request/response types
 
+// UpdateRoomRequest represents a request to update a room's name or metadata.
+// Pointer fields: nil means "do not change this field".
+type UpdateRoomRequest struct {
+	Name     *string `json:"name"`
+	Metadata *string `json:"metadata"`
+}
+
+// UpdateMessageRequest represents a request to edit a message's content.
+type UpdateMessageRequest struct {
+	Content string `json:"content"`
+}
+
 // CreateRoomRequest represents a request to create a room
 type CreateRoomRequest struct {
 	Type     string   `json:"type"` // "dm", "group", "channel"
