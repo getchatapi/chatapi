@@ -358,8 +358,45 @@ func (s *Service) GetFailedUndeliveredMessages(tenantID string, limit int) ([]*m
 	return messages, rows.Err()
 }
 
+// DeleteMessage deletes a message by ID. Only the original sender may delete their message.
+// Returns the deleted message's seq number so the caller can broadcast a message.deleted event.
+func (s *Service) DeleteMessage(tenantID, roomID, messageID, senderID string) (int, error) {
+	var storedSenderID string
+	var seq int
+	query := `
+		SELECT sender_id, seq FROM messages
+		WHERE tenant_id = ? AND chatroom_id = ? AND message_id = ?
+	`
+	err := s.db.QueryRow(query, tenantID, roomID, messageID).Scan(&storedSenderID, &seq)
+	if err == sql.ErrNoRows {
+		return 0, fmt.Errorf("message not found")
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to look up message: %w", err)
+	}
+	if storedSenderID != senderID {
+		return 0, fmt.Errorf("forbidden")
+	}
+
+	_, err = s.db.Exec(
+		`DELETE FROM messages WHERE tenant_id = ? AND chatroom_id = ? AND message_id = ?`,
+		tenantID, roomID, messageID,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete message: %w", err)
+	}
+
+	slog.Info("Message deleted",
+		"tenant_id", tenantID,
+		"room_id", roomID,
+		"message_id", messageID,
+		"sender_id", senderID,
+		"seq", seq)
+
+	return seq, nil
+}
+
 // generateMessageID generates a unique message ID
-// In production, use crypto/rand or UUID library
 func generateMessageID() string {
 	return uuid.New().String()
 }

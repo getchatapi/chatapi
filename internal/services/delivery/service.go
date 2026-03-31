@@ -182,7 +182,7 @@ func (s *Service) HandleNewMessage(tenantID, roomID string, message *models.Mess
 
 		// Fire webhook immediately so the app can push a notification
 		if cfg != nil && cfg.WebhookURL != "" {
-			go s.webhookSvc.NotifyOfflineUser(cfg.WebhookURL, tenantID, roomID, member.UserID, room.Metadata, msgInfo)
+			go s.webhookSvc.NotifyOfflineUser(cfg.WebhookURL, cfg.WebhookSecret, tenantID, roomID, member.UserID, room.Metadata, msgInfo)
 		}
 	}
 }

@@ -2,6 +2,7 @@ package rest
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -51,6 +52,16 @@ func NewHandler(
 	}
 }
 
+// writeError writes a structured JSON error response.
+func writeError(w http.ResponseWriter, code, message string, status int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{
+		"error":   code,
+		"message": message,
+	})
+}
+
 // RegisterRoutes registers all REST routes
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Health check and metrics
@@ -65,6 +76,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Messages
 	mux.HandleFunc("POST /rooms/{room_id}/messages", h.HandleSendMessage)
 	mux.HandleFunc("GET /rooms/{room_id}/messages", h.HandleGetMessages)
+	mux.HandleFunc("DELETE /rooms/{room_id}/messages/{message_id}", h.HandleDeleteMessage)
 
 	// ACKs
 	mux.HandleFunc("POST /acks", h.HandleAck)
@@ -80,30 +92,25 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 // AuthMiddleware for authentication and tenant validation
 func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Extract API key
 		apiKey := r.Header.Get("X-API-Key")
 		if apiKey == "" {
-			http.Error(w, "Missing X-API-Key header", http.StatusUnauthorized)
+			writeError(w, "unauthorized", "Missing X-API-Key header", http.StatusUnauthorized)
 			return
 		}
 
-		// Validate tenant
 		tenant, err := h.tenantSvc.ValidateAPIKey(apiKey)
 		if err != nil {
-			http.Error(w, "Invalid API key", http.StatusUnauthorized)
+			writeError(w, "unauthorized", "Invalid API key", http.StatusUnauthorized)
 			return
 		}
 
-		// Check rate limit
 		if err := h.tenantSvc.CheckRateLimit(tenant.TenantID); err != nil {
 			w.Header().Set("Retry-After", "60")
-			http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+			writeError(w, "rate_limit_exceeded", "Too many requests", http.StatusTooManyRequests)
 			return
 		}
 
-		// Add tenant to request context (simplified - in production use context.WithValue)
 		r.Header.Set("X-Tenant-ID", tenant.TenantID)
-
 		next(w, r)
 	}
 }
@@ -122,7 +129,7 @@ func (h *Handler) getUserID(r *http.Request) string {
 func (h *Handler) requireUserID(w http.ResponseWriter, r *http.Request) string {
 	userID := h.getUserID(r)
 	if userID == "" {
-		http.Error(w, "Missing X-User-Id header", http.StatusBadRequest)
+		writeError(w, "invalid_request", "Missing X-User-Id header", http.StatusBadRequest)
 		return ""
 	}
 	return userID
@@ -187,14 +194,14 @@ func (h *Handler) HandleCreateRoom(w http.ResponseWriter, r *http.Request) {
 
 	var req models.CreateRoomRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		writeError(w, "invalid_request", "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
 	room, err := h.chatroomSvc.CreateRoom(tenantID, &req)
 	if err != nil {
 		slog.Error("Failed to create room", "error", err, "tenant_id", tenantID, "user_id", userID)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeError(w, "internal_error", "Failed to create room", http.StatusInternalServerError)
 		return
 	}
 
@@ -209,7 +216,7 @@ func (h *Handler) HandleGetRoom(w http.ResponseWriter, r *http.Request) {
 
 	room, err := h.chatroomSvc.GetRoom(tenantID, roomID)
 	if err != nil {
-		http.Error(w, "Room not found", http.StatusNotFound)
+		writeError(w, "not_found", "Room not found", http.StatusNotFound)
 		return
 	}
 
@@ -224,7 +231,7 @@ func (h *Handler) HandleGetRoomMembers(w http.ResponseWriter, r *http.Request) {
 
 	members, err := h.chatroomSvc.GetRoomMembers(tenantID, roomID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeError(w, "internal_error", "Failed to get room members", http.StatusInternalServerError)
 		return
 	}
 
@@ -246,14 +253,25 @@ func (h *Handler) HandleSendMessage(w http.ResponseWriter, r *http.Request) {
 
 	var req models.CreateMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		writeError(w, "invalid_request", "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Content == "" {
+		writeError(w, "invalid_request", "content is required", http.StatusBadRequest)
+		return
+	}
+
+	cfg, err := h.tenantSvc.GetTenantConfig(tenantID)
+	if err == nil && cfg.MaxMessageSize > 0 && len(req.Content) > cfg.MaxMessageSize {
+		writeError(w, "invalid_request", fmt.Sprintf("content exceeds maximum length of %d characters", cfg.MaxMessageSize), http.StatusBadRequest)
 		return
 	}
 
 	message, err := h.messageSvc.SendMessage(tenantID, roomID, userID, &req)
 	if err != nil {
 		slog.Error("Failed to send message", "error", err, "tenant_id", tenantID, "user_id", userID, "room_id", roomID)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeError(w, "internal_error", "Failed to send message", http.StatusInternalServerError)
 		return
 	}
 
@@ -300,7 +318,7 @@ func (h *Handler) HandleGetMessages(w http.ResponseWriter, r *http.Request) {
 
 	messages, err := h.messageSvc.GetMessages(tenantID, roomID, afterSeq, limit)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeError(w, "internal_error", "Failed to get messages", http.StatusInternalServerError)
 		return
 	}
 
@@ -320,12 +338,12 @@ func (h *Handler) HandleAck(w http.ResponseWriter, r *http.Request) {
 
 	var req models.AckRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		writeError(w, "invalid_request", "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
 	if err := h.messageSvc.UpdateLastAck(tenantID, userID, req.RoomID, req.Seq); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeError(w, "internal_error", "Failed to process acknowledgment", http.StatusInternalServerError)
 		return
 	}
 
@@ -346,14 +364,14 @@ func (h *Handler) HandleNotify(w http.ResponseWriter, r *http.Request) {
 
 	var req models.CreateNotificationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		writeError(w, "invalid_request", "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
 	notification, err := h.notifSvc.CreateNotification(tenantID, &req)
 	if err != nil {
 		slog.Error("Failed to create notification", "error", err, "tenant_id", tenantID)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeError(w, "internal_error", "Failed to create notification", http.StatusInternalServerError)
 		return
 	}
 
@@ -367,32 +385,29 @@ func (h *Handler) HandleNotify(w http.ResponseWriter, r *http.Request) {
 
 // HandleCreateTenant creates a new tenant (admin only)
 func (h *Handler) HandleCreateTenant(w http.ResponseWriter, r *http.Request) {
-	// Check master API key
 	masterKey := r.Header.Get("X-Master-Key")
 	if masterKey == "" || masterKey != h.config.MasterAPIKey {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeError(w, "unauthorized", "Invalid or missing X-Master-Key header", http.StatusUnauthorized)
 		return
 	}
 
-	// Parse request body
 	var req struct {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		writeError(w, "invalid_request", "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
 	if req.Name == "" {
-		http.Error(w, "Name is required", http.StatusBadRequest)
+		writeError(w, "invalid_request", "name is required", http.StatusBadRequest)
 		return
 	}
 
-	// Create tenant
 	tenant, err := h.tenantSvc.CreateTenant(req.Name)
 	if err != nil {
 		slog.Error("Failed to create tenant", "error", err)
-		http.Error(w, "Failed to create tenant", http.StatusInternalServerError)
+		writeError(w, "internal_error", "Failed to create tenant", http.StatusInternalServerError)
 		return
 	}
 
@@ -459,7 +474,7 @@ func (h *Handler) HandleGetUserRooms(w http.ResponseWriter, r *http.Request) {
 	rooms, err := h.chatroomSvc.GetUserRooms(tenantID, userID)
 	if err != nil {
 		slog.Error("Failed to get user rooms", "error", err, "tenant_id", tenantID, "user_id", userID)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeError(w, "internal_error", "Failed to get rooms", http.StatusInternalServerError)
 		return
 	}
 
@@ -483,18 +498,18 @@ func (h *Handler) HandleSubscribe(w http.ResponseWriter, r *http.Request) {
 		Topic string `json:"topic"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		writeError(w, "invalid_request", "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 	if req.Topic == "" {
-		http.Error(w, "topic is required", http.StatusBadRequest)
+		writeError(w, "invalid_request", "topic is required", http.StatusBadRequest)
 		return
 	}
 
 	sub, err := h.notifSvc.Subscribe(tenantID, userID, req.Topic)
 	if err != nil {
 		slog.Error("Failed to subscribe", "error", err, "tenant_id", tenantID, "user_id", userID)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeError(w, "internal_error", "Failed to subscribe", http.StatusInternalServerError)
 		return
 	}
 
@@ -514,12 +529,12 @@ func (h *Handler) HandleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, "Invalid subscription ID", http.StatusBadRequest)
+		writeError(w, "invalid_request", "Invalid subscription ID", http.StatusBadRequest)
 		return
 	}
 
 	if err := h.notifSvc.Unsubscribe(tenantID, userID, id); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		writeError(w, "not_found", "Subscription not found", http.StatusNotFound)
 		return
 	}
 
@@ -536,7 +551,7 @@ func (h *Handler) HandleListSubscriptions(w http.ResponseWriter, r *http.Request
 
 	subs, err := h.notifSvc.GetUserSubscriptions(tenantID, userID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeError(w, "internal_error", "Failed to get subscriptions", http.StatusInternalServerError)
 		return
 	}
 
@@ -546,6 +561,41 @@ func (h *Handler) HandleListSubscriptions(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"subscriptions": subs})
+}
+
+// HandleDeleteMessage deletes a message. Only the original sender may delete their own message.
+func (h *Handler) HandleDeleteMessage(w http.ResponseWriter, r *http.Request) {
+	tenantID := h.getTenantID(r)
+	userID := h.requireUserID(w, r)
+	if userID == "" {
+		return
+	}
+
+	roomID := r.PathValue("room_id")
+	messageID := r.PathValue("message_id")
+
+	seq, err := h.messageSvc.DeleteMessage(tenantID, roomID, messageID, userID)
+	if err != nil {
+		switch err.Error() {
+		case "message not found":
+			writeError(w, "not_found", "Message not found", http.StatusNotFound)
+		case "forbidden":
+			writeError(w, "forbidden", "You can only delete your own messages", http.StatusForbidden)
+		default:
+			slog.Error("Failed to delete message", "error", err, "tenant_id", tenantID, "message_id", messageID)
+			writeError(w, "internal_error", "Failed to delete message", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	h.realtimeSvc.BroadcastToRoom(tenantID, roomID, map[string]interface{}{
+		"type":       "message.deleted",
+		"room_id":    roomID,
+		"message_id": messageID,
+		"seq":        seq,
+	})
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // HandleWSToken issues a short-lived WebSocket token for browser clients

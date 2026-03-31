@@ -29,7 +29,11 @@ type TenantConfig struct {
 	RateLimit            int    `json:"rate_limit"` // requests per second
 	// WebhookURL is called with a POST when a message arrives for an offline user.
 	// Payload: {"event":"message.new","tenant_id","room_id","recipient_id","room_metadata","message":{...}}
-	WebhookURL           string `json:"webhook_url,omitempty"`
+	WebhookURL    string `json:"webhook_url,omitempty"`
+	// WebhookSecret is used to sign webhook payloads with HMAC-SHA256.
+	// The signature is sent in the X-ChatAPI-Signature header as "sha256=<hex>".
+	// If empty, payloads are sent unsigned.
+	WebhookSecret string `json:"webhook_secret,omitempty"`
 }
 
 // NewService creates a new tenant service
@@ -71,10 +75,16 @@ func (s *Service) ValidateAPIKey(apiKey string) (*models.Tenant, error) {
 // CreateTenant creates a new tenant with a generated API key
 func (s *Service) CreateTenant(name string) (*models.Tenant, error) {
 	// Generate tenant ID (UUID)
-	tenantID := generateTenantID()
+	tenantID, err := generateTenantID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate tenant ID: %w", err)
+	}
 
 	// Generate API key (32-byte random hex)
-	apiKey := generateAPIKey()
+	apiKey, err := generateAPIKey()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate API key: %w", err)
+	}
 
 	// Default config
 	config := TenantConfig{
@@ -113,22 +123,26 @@ func (s *Service) CreateTenant(name string) (*models.Tenant, error) {
 }
 
 // generateTenantID generates a unique tenant ID
-func generateTenantID() string {
-	return fmt.Sprintf("tenant_%s", generateRandomHex(8))
+func generateTenantID() (string, error) {
+	hex, err := generateRandomHex(8)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("tenant_%s", hex), nil
 }
 
 // generateAPIKey generates a random API key
-func generateAPIKey() string {
+func generateAPIKey() (string, error) {
 	return generateRandomHex(32)
 }
 
 // generateRandomHex generates a random hex string of given byte length
-func generateRandomHex(length int) string {
+func generateRandomHex(length int) (string, error) {
 	bytes := make([]byte, length)
 	if _, err := rand.Read(bytes); err != nil {
-		panic("failed to generate random bytes")
+		return "", fmt.Errorf("failed to generate random bytes: %w", err)
 	}
-	return hex.EncodeToString(bytes)
+	return hex.EncodeToString(bytes), nil
 }
 
 // hashAPIKey returns the SHA-256 hex digest of a plaintext API key.
