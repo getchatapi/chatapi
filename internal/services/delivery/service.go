@@ -63,8 +63,10 @@ func (s *Service) ProcessUndeliveredMessages(tenantID string, limit int) error {
 	if err != nil {
 		return fmt.Errorf("failed to get undelivered messages: %w", err)
 	}
-	defer rows.Close()
 
+	// Collect all rows before closing the cursor. SQLite does not allow writes
+	// to a table while a read cursor is open on it.
+	var pending []models.UndeliveredMessage
 	for rows.Next() {
 		var msg models.UndeliveredMessage
 		err := rows.Scan(
@@ -80,13 +82,17 @@ func (s *Service) ProcessUndeliveredMessages(tenantID string, limit int) error {
 			slog.Error("Failed to scan undelivered message", "error", err)
 			continue
 		}
+		pending = append(pending, msg)
+	}
+	rows.Close()
 
-		if err := s.attemptMessageDelivery(&msg); err != nil {
+	for i := range pending {
+		if err := s.attemptMessageDelivery(&pending[i]); err != nil {
 			slog.Warn("Failed to deliver message",
 				"tenant_id", tenantID,
-				"message_id", msg.MessageID,
-				"user_id", msg.UserID,
-				"attempts", msg.Attempts,
+				"message_id", pending[i].MessageID,
+				"user_id", pending[i].UserID,
+				"attempts", pending[i].Attempts,
 				"error", err)
 		}
 	}

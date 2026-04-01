@@ -63,6 +63,7 @@ func (s *Service) createDMRoom(tenantID string, req *models.CreateRoomRequest) (
 
 	// Check if DM already exists
 	var existingRoom models.Room
+	var exName, exMetadata sql.NullString
 	query := `
 		SELECT room_id, tenant_id, type, unique_key, name, last_seq, metadata, created_at
 		FROM rooms
@@ -74,14 +75,16 @@ func (s *Service) createDMRoom(tenantID string, req *models.CreateRoomRequest) (
 		&existingRoom.TenantID,
 		&existingRoom.Type,
 		&existingRoom.UniqueKey,
-		&existingRoom.Name,
+		&exName,
 		&existingRoom.LastSeq,
-		&existingRoom.Metadata,
+		&exMetadata,
 		&existingRoom.CreatedAt,
 	)
 
 	if err == nil {
 		// Room already exists
+		existingRoom.Name = exName.String
+		existingRoom.Metadata = exMetadata.String
 		return &existingRoom, nil
 	}
 
@@ -157,7 +160,7 @@ func (s *Service) addMembers(tenantID, roomID string, userIDs []string) error {
 	defer tx.Rollback()
 
 	query := `
-		INSERT INTO room_members (chatroom_id, tenant_id, user_id, role)
+		INSERT OR IGNORE INTO room_members (chatroom_id, tenant_id, user_id, role)
 		VALUES (?, ?, ?, 'member')
 	`
 
@@ -174,6 +177,7 @@ func (s *Service) addMembers(tenantID, roomID string, userIDs []string) error {
 // GetRoom retrieves a room by ID
 func (s *Service) GetRoom(tenantID, roomID string) (*models.Room, error) {
 	var room models.Room
+	var uniqueKey, name, metadata sql.NullString
 	query := `
 		SELECT room_id, tenant_id, type, unique_key, name, last_seq, metadata, created_at
 		FROM rooms
@@ -184,10 +188,10 @@ func (s *Service) GetRoom(tenantID, roomID string) (*models.Room, error) {
 		&room.RoomID,
 		&room.TenantID,
 		&room.Type,
-		&room.UniqueKey,
-		&room.Name,
+		&uniqueKey,
+		&name,
 		&room.LastSeq,
-		&room.Metadata,
+		&metadata,
 		&room.CreatedAt,
 	)
 
@@ -198,6 +202,9 @@ func (s *Service) GetRoom(tenantID, roomID string) (*models.Room, error) {
 		return nil, fmt.Errorf("failed to get room: %w", err)
 	}
 
+	room.UniqueKey = uniqueKey.String
+	room.Name = name.String
+	room.Metadata = metadata.String
 	return &room, nil
 }
 
@@ -295,19 +302,23 @@ func (s *Service) GetUserRooms(tenantID, userID string) ([]*models.Room, error) 
 	var rooms []*models.Room
 	for rows.Next() {
 		var room models.Room
+		var uniqueKey, name, metadata sql.NullString
 		err := rows.Scan(
 			&room.RoomID,
 			&room.TenantID,
 			&room.Type,
-			&room.UniqueKey,
-			&room.Name,
+			&uniqueKey,
+			&name,
 			&room.LastSeq,
-			&room.Metadata,
+			&metadata,
 			&room.CreatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan room: %w", err)
 		}
+		room.UniqueKey = uniqueKey.String
+		room.Name = name.String
+		room.Metadata = metadata.String
 		rooms = append(rooms, &room)
 	}
 

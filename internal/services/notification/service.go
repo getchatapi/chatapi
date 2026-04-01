@@ -216,9 +216,12 @@ func (s *Service) GetUserSubscriptions(tenantID, subscriberID string) ([]*models
 	var subs []*models.NotificationSubscription
 	for rows.Next() {
 		var sub models.NotificationSubscription
-		if err := rows.Scan(&sub.ID, &sub.TenantID, &sub.SubscriberID, &sub.Topic, &sub.Endpoint, &sub.Metadata, &sub.CreatedAt); err != nil {
+		var endpoint, metadata sql.NullString
+		if err := rows.Scan(&sub.ID, &sub.TenantID, &sub.SubscriberID, &sub.Topic, &endpoint, &metadata, &sub.CreatedAt); err != nil {
 			return nil, err
 		}
+		sub.Endpoint = endpoint.String
+		sub.Metadata = metadata.String
 		subs = append(subs, &sub)
 	}
 	return subs, rows.Err()
