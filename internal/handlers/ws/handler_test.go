@@ -16,6 +16,7 @@ import (
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
 	"github.com/hastenr/chatapi/internal/services/message"
+	"github.com/hastenr/chatapi/internal/services/oversight"
 	"github.com/hastenr/chatapi/internal/services/realtime"
 	"github.com/hastenr/chatapi/internal/services/webhook"
 	"github.com/hastenr/chatapi/internal/testutil"
@@ -42,10 +43,11 @@ func newWSEnv(t *testing.T) *wsTestEnv {
 	webhookSvc := webhook.NewService()
 	deliverySvc := delivery.NewService(db.DB, realtimeSvc, chatroomSvc, "", "", webhookSvc)
 	botSvc := bot.NewService(db.DB, messageSvc, realtimeSvc, chatroomSvc, deliverySvc)
+	oversightSvc := oversight.NewService()
 
 	t.Cleanup(func() { realtimeSvc.Shutdown(context.Background()) })
 
-	handler := ws.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, botSvc, cfg)
+	handler := ws.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, botSvc, oversightSvc, cfg)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", handler.HandleConnection)

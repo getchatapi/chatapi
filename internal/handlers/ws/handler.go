@@ -15,6 +15,7 @@ import (
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
 	"github.com/hastenr/chatapi/internal/services/message"
+	"github.com/hastenr/chatapi/internal/services/oversight"
 	"github.com/hastenr/chatapi/internal/services/realtime"
 )
 
@@ -23,13 +24,14 @@ const defaultTenantID = "default"
 
 // Handler handles WebSocket connections
 type Handler struct {
-	chatroomSvc *chatroom.Service
-	messageSvc  *message.Service
-	realtimeSvc *realtime.Service
-	deliverySvc *delivery.Service
-	botSvc      *bot.Service
-	jwtSecret   string
-	upgrader    websocket.Upgrader
+	chatroomSvc  *chatroom.Service
+	messageSvc   *message.Service
+	realtimeSvc  *realtime.Service
+	deliverySvc  *delivery.Service
+	botSvc       *bot.Service
+	oversightSvc *oversight.Service
+	jwtSecret    string
+	upgrader     websocket.Upgrader
 }
 
 // NewHandler creates a new WebSocket handler
@@ -39,6 +41,7 @@ func NewHandler(
 	realtimeSvc *realtime.Service,
 	deliverySvc *delivery.Service,
 	botSvc *bot.Service,
+	oversightSvc *oversight.Service,
 	cfg *config.Config,
 ) *Handler {
 	allowedOrigins := cfg.AllowedOrigins
@@ -70,13 +73,14 @@ func NewHandler(
 	}
 
 	return &Handler{
-		chatroomSvc: chatroomSvc,
-		messageSvc:  messageSvc,
-		realtimeSvc: realtimeSvc,
-		deliverySvc: deliverySvc,
-		botSvc:      botSvc,
-		jwtSecret:   cfg.JWTSecret,
-		upgrader:    websocket.Upgrader{CheckOrigin: checkOrigin},
+		chatroomSvc:  chatroomSvc,
+		messageSvc:   messageSvc,
+		realtimeSvc:  realtimeSvc,
+		deliverySvc:  deliverySvc,
+		botSvc:       botSvc,
+		oversightSvc: oversightSvc,
+		jwtSecret:    cfg.JWTSecret,
+		upgrader:     websocket.Upgrader{CheckOrigin: checkOrigin},
 	}
 }
 
@@ -241,6 +245,7 @@ func (h *Handler) handleSendMessage(tenantID, userID string, data interface{}) e
 
 	go h.deliverySvc.HandleNewMessage(tenantID, roomID, message)
 	go h.botSvc.TriggerBots(tenantID, roomID, message)
+	h.oversightSvc.NotifyWaiters(tenantID, roomID, message)
 
 	return nil
 }

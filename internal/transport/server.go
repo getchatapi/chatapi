@@ -8,6 +8,7 @@ import (
 
 	"github.com/hastenr/chatapi/internal/config"
 	"github.com/hastenr/chatapi/internal/db"
+	"github.com/hastenr/chatapi/internal/handlers/mcp"
 	"github.com/hastenr/chatapi/internal/handlers/rest"
 	"github.com/hastenr/chatapi/internal/handlers/ws"
 	"github.com/hastenr/chatapi/internal/services/bot"
@@ -15,6 +16,7 @@ import (
 	"github.com/hastenr/chatapi/internal/services/delivery"
 	"github.com/hastenr/chatapi/internal/services/message"
 	"github.com/hastenr/chatapi/internal/services/notification"
+	"github.com/hastenr/chatapi/internal/services/oversight"
 	"github.com/hastenr/chatapi/internal/services/realtime"
 	"github.com/hastenr/chatapi/internal/services/webhook"
 )
@@ -34,9 +36,11 @@ func NewServer(cfg *config.Config, db *db.DB, realtimeSvc *realtime.Service) *Se
 	webhookSvc := webhook.NewService()
 	deliverySvc := delivery.NewService(db.DB, realtimeSvc, chatroomSvc, cfg.WebhookURL, cfg.WebhookSecret, webhookSvc)
 	botSvc := bot.NewService(db.DB, messageSvc, realtimeSvc, chatroomSvc, deliverySvc)
+	oversightSvc := oversight.NewService()
+	mcpHandler := mcp.NewHandler(messageSvc, chatroomSvc, realtimeSvc, deliverySvc, oversightSvc, botSvc, cfg.JWTSecret)
 
-	restHandler := rest.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, notifSvc, botSvc, cfg)
-	wsHandler := ws.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, botSvc, cfg)
+	restHandler := rest.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, notifSvc, botSvc, oversightSvc, cfg)
+	wsHandler := ws.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, botSvc, oversightSvc, cfg)
 
 	mux := http.NewServeMux()
 
@@ -44,6 +48,10 @@ func NewServer(cfg *config.Config, db *db.DB, realtimeSvc *realtime.Service) *Se
 	mux.HandleFunc("/health", restHandler.HandleHealth)
 	mux.HandleFunc("/metrics", restHandler.HandleMetrics)
 	mux.HandleFunc("/ws", wsHandler.HandleConnection)
+
+	// MCP routes — JWT via ?token= or Authorization header
+	mux.HandleFunc("/mcp/sse", mcpHandler.HandleSSE)
+	mux.HandleFunc("/mcp/message", mcpHandler.HandleMessage)
 
 	// Protected routes — JWT required
 	protectedMux := http.NewServeMux()

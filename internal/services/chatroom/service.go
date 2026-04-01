@@ -65,7 +65,7 @@ func (s *Service) createDMRoom(tenantID string, req *models.CreateRoomRequest) (
 	var existingRoom models.Room
 	var exName, exMetadata sql.NullString
 	query := `
-		SELECT room_id, tenant_id, type, unique_key, name, last_seq, metadata, created_at
+		SELECT room_id, tenant_id, type, unique_key, name, state, last_seq, metadata, created_at
 		FROM rooms
 		WHERE tenant_id = ? AND unique_key = ?
 	`
@@ -76,6 +76,7 @@ func (s *Service) createDMRoom(tenantID string, req *models.CreateRoomRequest) (
 		&existingRoom.Type,
 		&existingRoom.UniqueKey,
 		&exName,
+		&existingRoom.State,
 		&existingRoom.LastSeq,
 		&exMetadata,
 		&existingRoom.CreatedAt,
@@ -179,7 +180,7 @@ func (s *Service) GetRoom(tenantID, roomID string) (*models.Room, error) {
 	var room models.Room
 	var uniqueKey, name, metadata sql.NullString
 	query := `
-		SELECT room_id, tenant_id, type, unique_key, name, last_seq, metadata, created_at
+		SELECT room_id, tenant_id, type, unique_key, name, state, last_seq, metadata, created_at
 		FROM rooms
 		WHERE tenant_id = ? AND room_id = ?
 	`
@@ -190,6 +191,7 @@ func (s *Service) GetRoom(tenantID, roomID string) (*models.Room, error) {
 		&room.Type,
 		&uniqueKey,
 		&name,
+		&room.State,
 		&room.LastSeq,
 		&metadata,
 		&room.CreatedAt,
@@ -286,7 +288,7 @@ func (s *Service) RemoveMember(tenantID, roomID, userID string) error {
 // GetUserRooms returns all rooms that a user is a member of
 func (s *Service) GetUserRooms(tenantID, userID string) ([]*models.Room, error) {
 	query := `
-		SELECT r.room_id, r.tenant_id, r.type, r.unique_key, r.name, r.last_seq, r.metadata, r.created_at
+		SELECT r.room_id, r.tenant_id, r.type, r.unique_key, r.name, r.state, r.last_seq, r.metadata, r.created_at
 		FROM rooms r
 		JOIN room_members rm ON r.room_id = rm.chatroom_id AND r.tenant_id = rm.tenant_id
 		WHERE r.tenant_id = ? AND rm.user_id = ?
@@ -309,6 +311,7 @@ func (s *Service) GetUserRooms(tenantID, userID string) ([]*models.Room, error) 
 			&room.Type,
 			&uniqueKey,
 			&name,
+			&room.State,
 			&room.LastSeq,
 			&metadata,
 			&room.CreatedAt,
@@ -338,6 +341,10 @@ func (s *Service) UpdateRoom(tenantID, roomID string, req *models.UpdateRoomRequ
 		setParts = append(setParts, "metadata = ?")
 		args = append(args, *req.Metadata)
 	}
+	if req.State != nil {
+		setParts = append(setParts, "state = ?")
+		args = append(args, *req.State)
+	}
 
 	if len(setParts) == 0 {
 		return s.GetRoom(tenantID, roomID)
@@ -363,8 +370,24 @@ func (s *Service) UpdateRoom(tenantID, roomID string, req *models.UpdateRoomRequ
 	return s.GetRoom(tenantID, roomID)
 }
 
+// SetRoomState updates the state of a room directly (used by the oversight layer).
+// Valid states: "active", "pending", "resolved".
+func (s *Service) SetRoomState(tenantID, roomID, state string) error {
+	result, err := s.db.Exec(
+		`UPDATE rooms SET state = ? WHERE tenant_id = ? AND room_id = ?`,
+		state, tenantID, roomID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to set room state: %w", err)
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("room not found")
+	}
+	return nil
+}
+
 // generateRoomID generates a unique room ID
-// In a real implementation, this would use UUID or similar
 func generateRoomID() string {
 	return uuid.New().String()
 }

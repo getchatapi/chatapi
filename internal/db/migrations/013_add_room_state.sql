@@ -1,0 +1,1 @@
+ALTER TABLE rooms ADD COLUMN state TEXT NOT NULL DEFAULT 'active';
