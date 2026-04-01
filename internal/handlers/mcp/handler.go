@@ -21,7 +21,6 @@ import (
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
 	"github.com/hastenr/chatapi/internal/services/message"
-	"github.com/hastenr/chatapi/internal/services/oversight"
 	"github.com/hastenr/chatapi/internal/services/realtime"
 )
 
@@ -59,15 +58,14 @@ type session struct {
 
 // Handler manages MCP sessions and dispatches tool calls.
 type Handler struct {
-	mu           sync.Mutex
-	sessions     map[string]*session
-	messageSvc   *message.Service
-	chatroomSvc  *chatroom.Service
-	realtimeSvc  *realtime.Service
-	deliverySvc  *delivery.Service
-	oversightSvc *oversight.Service
-	botSvc       *bot.Service
-	jwtSecret    string
+	mu          sync.Mutex
+	sessions    map[string]*session
+	messageSvc  *message.Service
+	chatroomSvc *chatroom.Service
+	realtimeSvc *realtime.Service
+	deliverySvc *delivery.Service
+	botSvc      *bot.Service
+	jwtSecret   string
 }
 
 // NewHandler creates a new MCP handler.
@@ -76,19 +74,17 @@ func NewHandler(
 	chatroomSvc *chatroom.Service,
 	realtimeSvc *realtime.Service,
 	deliverySvc *delivery.Service,
-	oversightSvc *oversight.Service,
 	botSvc *bot.Service,
 	jwtSecret string,
 ) *Handler {
 	return &Handler{
-		sessions:     make(map[string]*session),
-		messageSvc:   messageSvc,
-		chatroomSvc:  chatroomSvc,
-		realtimeSvc:  realtimeSvc,
-		deliverySvc:  deliverySvc,
-		oversightSvc: oversightSvc,
-		botSvc:       botSvc,
-		jwtSecret:    jwtSecret,
+		sessions:    make(map[string]*session),
+		messageSvc:  messageSvc,
+		chatroomSvc: chatroomSvc,
+		realtimeSvc: realtimeSvc,
+		deliverySvc: deliverySvc,
+		botSvc:      botSvc,
+		jwtSecret:   jwtSecret,
 	}
 }
 
@@ -254,10 +250,6 @@ func (h *Handler) callTool(sess *session, params json.RawMessage) (any, *rpcErr)
 		return h.toolCreateRoom(p.Arguments)
 	case "is_user_online":
 		return h.toolIsUserOnline(p.Arguments)
-	case "request_approval":
-		return h.toolRequestApproval(sess.userID, p.Arguments)
-	case "await_response":
-		return h.toolAwaitResponse(sess, p.Arguments)
 	default:
 		return nil, &rpcErr{Code: -32602, Message: "unknown tool: " + p.Name}
 	}

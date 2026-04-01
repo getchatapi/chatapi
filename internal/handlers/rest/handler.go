@@ -16,7 +16,6 @@ import (
 	"github.com/hastenr/chatapi/internal/services/delivery"
 	"github.com/hastenr/chatapi/internal/services/message"
 	"github.com/hastenr/chatapi/internal/services/notification"
-	"github.com/hastenr/chatapi/internal/services/oversight"
 	"github.com/hastenr/chatapi/internal/services/realtime"
 )
 
@@ -30,9 +29,8 @@ type Handler struct {
 	realtimeSvc  *realtime.Service
 	deliverySvc  *delivery.Service
 	notifSvc     *notification.Service
-	botSvc       *bot.Service
-	oversightSvc *oversight.Service
-	jwtSecret    string
+	botSvc    *bot.Service
+	jwtSecret string
 	startTime    time.Time
 }
 
@@ -44,19 +42,17 @@ func NewHandler(
 	deliverySvc *delivery.Service,
 	notifSvc *notification.Service,
 	botSvc *bot.Service,
-	oversightSvc *oversight.Service,
 	cfg *config.Config,
 ) *Handler {
 	return &Handler{
-		chatroomSvc:  chatroomSvc,
-		messageSvc:   messageSvc,
-		realtimeSvc:  realtimeSvc,
-		deliverySvc:  deliverySvc,
-		notifSvc:     notifSvc,
-		botSvc:       botSvc,
-		oversightSvc: oversightSvc,
-		jwtSecret:    cfg.JWTSecret,
-		startTime:    time.Now(),
+		chatroomSvc: chatroomSvc,
+		messageSvc:  messageSvc,
+		realtimeSvc: realtimeSvc,
+		deliverySvc: deliverySvc,
+		notifSvc:    notifSvc,
+		botSvc:      botSvc,
+		jwtSecret:   cfg.JWTSecret,
+		startTime:   time.Now(),
 	}
 }
 
@@ -230,7 +226,6 @@ func (h *Handler) HandleSendMessage(w http.ResponseWriter, r *http.Request) {
 
 	go h.deliverySvc.HandleNewMessage(defaultTenantID, roomID, message)
 	go h.botSvc.TriggerBots(defaultTenantID, roomID, message)
-	h.oversightSvc.NotifyWaiters(defaultTenantID, roomID, message)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(message)

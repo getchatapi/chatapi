@@ -1,9 +1,6 @@
 package mcp
 
 import (
-	"encoding/json"
-	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/hastenr/chatapi/internal/models"
@@ -63,36 +60,10 @@ func toolSchemas() []map[string]any {
 				"required": []string{"user_id"},
 			},
 		},
-		{
-			"name":        "request_approval",
-			"description": "Send a structured approval-request message to a room. Sets room state to 'pending'. Pair with await_response to block until the human decides.",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"room_id": map[string]any{"type": "string", "description": "Room to post the request in"},
-					"action":  map[string]any{"type": "string", "description": "Short description of the action needing approval"},
-					"context": map[string]any{"type": "string", "description": "Supporting detail to help the human decide (optional)"},
-				},
-				"required": []string{"room_id", "action"},
-			},
-		},
-		{
-			"name":        "await_response",
-			"description": "Block until a human sends a message in the room, then return it. Use after request_approval to wait for the human's decision. The call blocks the agent until the human responds or the timeout expires.",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"room_id":         map[string]any{"type": "string", "description": "Room to listen in"},
-					"timeout_seconds": map[string]any{"type": "integer", "description": "Max seconds to wait (default 300, max 3600)"},
-				},
-				"required": []string{"room_id"},
-			},
-		},
 	}
 }
 
 // toolSendMessage sends a message to a room as the bot.
-// Does NOT notify oversight waiters — only human sends do that.
 func (h *Handler) toolSendMessage(senderID string, args map[string]any) (any, *rpcErr) {
 	roomID, _ := args["room_id"].(string)
 	content, _ := args["content"].(string)
@@ -192,83 +163,4 @@ func (h *Handler) toolIsUserOnline(args map[string]any) (any, *rpcErr) {
 
 	online := h.realtimeSvc.IsUserOnline(defaultTenantID, userID)
 	return map[string]any{"user_id": userID, "online": online}, nil
-}
-
-// toolRequestApproval sends a structured approval-request message and sets room state to pending.
-func (h *Handler) toolRequestApproval(senderID string, args map[string]any) (any, *rpcErr) {
-	roomID, _ := args["room_id"].(string)
-	action, _ := args["action"].(string)
-	if roomID == "" || action == "" {
-		return nil, &rpcErr{Code: -32602, Message: "room_id and action are required"}
-	}
-
-	ctx, _ := args["context"].(string)
-
-	metaMap := map[string]any{"type": "approval_request", "action": action}
-	if ctx != "" {
-		metaMap["context"] = ctx
-	}
-	metaBytes, _ := json.Marshal(metaMap)
-
-	msg, err := h.messageSvc.SendMessage(defaultTenantID, roomID, senderID, &models.CreateMessageRequest{
-		Content: fmt.Sprintf("Approval required: %s", action),
-		Meta:    string(metaBytes),
-	})
-	if err != nil {
-		return nil, &rpcErr{Code: -32000, Message: "failed to send approval request: " + err.Error()}
-	}
-
-	broadcast := map[string]any{
-		"type":       "message",
-		"room_id":    roomID,
-		"seq":        msg.Seq,
-		"message_id": msg.MessageID,
-		"sender_id":  msg.SenderID,
-		"content":    msg.Content,
-		"meta":       string(metaBytes),
-		"created_at": msg.CreatedAt.Format(time.RFC3339),
-	}
-	h.realtimeSvc.BroadcastToRoom(defaultTenantID, roomID, broadcast)
-	go h.deliverySvc.HandleNewMessage(defaultTenantID, roomID, msg)
-
-	// Mark room as pending so clients can render the approval UI.
-	if err := h.chatroomSvc.SetRoomState(defaultTenantID, roomID, "pending"); err != nil {
-		slog.Warn("request_approval: failed to set room state", "room_id", roomID, "error", err)
-	}
-
-	return map[string]any{
-		"message_id": msg.MessageID,
-		"seq":        msg.Seq,
-	}, nil
-}
-
-// toolAwaitResponse blocks until a human sends a message in the room.
-// This is intentionally a long-running tool — it ties up the MCP connection's
-// goroutine until the human responds or the timeout expires.
-func (h *Handler) toolAwaitResponse(_ *session, args map[string]any) (any, *rpcErr) {
-	roomID, _ := args["room_id"].(string)
-	if roomID == "" {
-		return nil, &rpcErr{Code: -32602, Message: "room_id is required"}
-	}
-
-	timeoutSec := 300
-	if v, ok := args["timeout_seconds"].(float64); ok && int(v) > 0 {
-		timeoutSec = int(v)
-		if timeoutSec > 3600 {
-			timeoutSec = 3600
-		}
-	}
-
-	msg, err := h.oversightSvc.WaitForResponse(defaultTenantID, roomID, time.Duration(timeoutSec)*time.Second)
-	if err != nil {
-		return nil, &rpcErr{Code: -32000, Message: "timeout: no response received"}
-	}
-
-	return map[string]any{
-		"message_id": msg.MessageID,
-		"sender_id":  msg.SenderID,
-		"content":    msg.Content,
-		"seq":        msg.Seq,
-		"created_at": msg.CreatedAt.Format(time.RFC3339),
-	}, nil
 }

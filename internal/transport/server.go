@@ -16,7 +16,6 @@ import (
 	"github.com/hastenr/chatapi/internal/services/delivery"
 	"github.com/hastenr/chatapi/internal/services/message"
 	"github.com/hastenr/chatapi/internal/services/notification"
-	"github.com/hastenr/chatapi/internal/services/oversight"
 	"github.com/hastenr/chatapi/internal/services/realtime"
 	"github.com/hastenr/chatapi/internal/services/webhook"
 )
@@ -36,11 +35,10 @@ func NewServer(cfg *config.Config, db *db.DB, realtimeSvc *realtime.Service) *Se
 	webhookSvc := webhook.NewService()
 	deliverySvc := delivery.NewService(db.DB, realtimeSvc, chatroomSvc, cfg.WebhookURL, cfg.WebhookSecret, webhookSvc)
 	botSvc := bot.NewService(db.DB, messageSvc, realtimeSvc, chatroomSvc, deliverySvc)
-	oversightSvc := oversight.NewService()
-	mcpHandler := mcp.NewHandler(messageSvc, chatroomSvc, realtimeSvc, deliverySvc, oversightSvc, botSvc, cfg.JWTSecret)
+	mcpHandler := mcp.NewHandler(messageSvc, chatroomSvc, realtimeSvc, deliverySvc, botSvc, cfg.JWTSecret)
 
-	restHandler := rest.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, notifSvc, botSvc, oversightSvc, cfg)
-	wsHandler := ws.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, botSvc, oversightSvc, cfg)
+	restHandler := rest.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, notifSvc, botSvc, cfg)
+	wsHandler := ws.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, botSvc, cfg)
 
 	mux := http.NewServeMux()
 

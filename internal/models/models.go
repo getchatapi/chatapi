@@ -18,7 +18,6 @@ type Room struct {
 	Type      string    `json:"type" db:"type"` // "dm", "group", "channel"
 	UniqueKey string    `json:"-" db:"unique_key"` // For DMs
 	Name      string    `json:"name,omitempty" db:"name"`
-	State     string    `json:"state" db:"state"` // "active" | "pending" | "resolved"
 	LastSeq   int       `json:"last_seq" db:"last_seq"`
 	Metadata  string    `json:"metadata,omitempty" db:"metadata"` // Arbitrary JSON for app-level context
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
@@ -124,12 +123,11 @@ type AddMemberRequest struct {
 
 // API request/response types
 
-// UpdateRoomRequest represents a request to update a room's name, metadata, or state.
+// UpdateRoomRequest represents a request to update a room's name or metadata.
 // Pointer fields: nil means "do not change this field".
 type UpdateRoomRequest struct {
 	Name     *string `json:"name"`
 	Metadata *string `json:"metadata"`
-	State    *string `json:"state"` // "active" | "pending" | "resolved"
 }
 
 // UpdateMessageRequest represents a request to edit a message's content.
