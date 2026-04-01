@@ -10,6 +10,7 @@ import (
 
 	"github.com/hastenr/chatapi/internal/config"
 	"github.com/hastenr/chatapi/internal/handlers/rest"
+	"github.com/hastenr/chatapi/internal/services/bot"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
 	"github.com/hastenr/chatapi/internal/services/message"
@@ -35,10 +36,11 @@ func newTestHandler(t *testing.T) *rest.Handler {
 	webhookSvc := webhook.NewService()
 	deliverySvc := delivery.NewService(db.DB, realtimeSvc, chatroomSvc, "", "", webhookSvc)
 	notifSvc := notification.NewService(db.DB)
+	botSvc := bot.NewService(db.DB, messageSvc, realtimeSvc, chatroomSvc, deliverySvc)
 
 	t.Cleanup(func() { realtimeSvc.Shutdown(context.Background()) })
 
-	return rest.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, notifSvc, cfg)
+	return rest.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, notifSvc, botSvc, cfg)
 }
 
 // newMux wires all handler routes with auth middleware so PathValue and JWT

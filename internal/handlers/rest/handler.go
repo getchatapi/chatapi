@@ -11,6 +11,7 @@ import (
 	"github.com/hastenr/chatapi/internal/auth"
 	"github.com/hastenr/chatapi/internal/config"
 	"github.com/hastenr/chatapi/internal/models"
+	"github.com/hastenr/chatapi/internal/services/bot"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
 	"github.com/hastenr/chatapi/internal/services/message"
@@ -28,6 +29,7 @@ type Handler struct {
 	realtimeSvc *realtime.Service
 	deliverySvc *delivery.Service
 	notifSvc    *notification.Service
+	botSvc      *bot.Service
 	jwtSecret   string
 	startTime   time.Time
 }
@@ -39,6 +41,7 @@ func NewHandler(
 	realtimeSvc *realtime.Service,
 	deliverySvc *delivery.Service,
 	notifSvc *notification.Service,
+	botSvc *bot.Service,
 	cfg *config.Config,
 ) *Handler {
 	return &Handler{
@@ -47,6 +50,7 @@ func NewHandler(
 		realtimeSvc: realtimeSvc,
 		deliverySvc: deliverySvc,
 		notifSvc:    notifSvc,
+		botSvc:      botSvc,
 		jwtSecret:   cfg.JWTSecret,
 		startTime:   time.Now(),
 	}
@@ -221,6 +225,7 @@ func (h *Handler) HandleSendMessage(w http.ResponseWriter, r *http.Request) {
 	h.realtimeSvc.BroadcastToRoom(defaultTenantID, roomID, broadcast)
 
 	go h.deliverySvc.HandleNewMessage(defaultTenantID, roomID, message)
+	go h.botSvc.TriggerBots(defaultTenantID, roomID, message)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(message)
@@ -487,6 +492,88 @@ func (h *Handler) HandleUpdateRoom(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(room)
+}
+
+// HandleAddMember adds a user (or bot) to a room.
+func (h *Handler) HandleAddMember(w http.ResponseWriter, r *http.Request) {
+	roomID := r.PathValue("room_id")
+
+	var req models.AddMemberRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid_request", "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.UserID == "" {
+		writeError(w, "invalid_request", "user_id is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.chatroomSvc.AddMember(defaultTenantID, roomID, req.UserID); err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint") {
+			writeError(w, "conflict", "Member already in room", http.StatusConflict)
+			return
+		}
+		slog.Error("Failed to add member", "error", err, "room_id", roomID, "user_id", req.UserID)
+		writeError(w, "internal_error", "Failed to add member", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// HandleCreateBot registers a new bot.
+func (h *Handler) HandleCreateBot(w http.ResponseWriter, r *http.Request) {
+	var req models.CreateBotRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid_request", "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	b, err := h.botSvc.CreateBot(&req)
+	if err != nil {
+		writeError(w, "invalid_request", err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(b)
+}
+
+// HandleListBots returns all registered bots.
+func (h *Handler) HandleListBots(w http.ResponseWriter, r *http.Request) {
+	bots, err := h.botSvc.ListBots()
+	if err != nil {
+		writeError(w, "internal_error", "Failed to list bots", http.StatusInternalServerError)
+		return
+	}
+	if bots == nil {
+		bots = []*models.Bot{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"bots": bots})
+}
+
+// HandleGetBot returns a single bot by ID.
+func (h *Handler) HandleGetBot(w http.ResponseWriter, r *http.Request) {
+	botID := r.PathValue("bot_id")
+	b, err := h.botSvc.GetBot(botID)
+	if err != nil {
+		writeError(w, "not_found", "Bot not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(b)
+}
+
+// HandleDeleteBot removes a bot by ID.
+func (h *Handler) HandleDeleteBot(w http.ResponseWriter, r *http.Request) {
+	botID := r.PathValue("bot_id")
+	if err := h.botSvc.DeleteBot(botID); err != nil {
+		writeError(w, "not_found", "Bot not found", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // HandleEditMessage updates the content of a message. Only the original sender may edit.

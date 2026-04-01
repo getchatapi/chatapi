@@ -11,6 +11,7 @@ import (
 	"github.com/hastenr/chatapi/internal/auth"
 	"github.com/hastenr/chatapi/internal/config"
 	"github.com/hastenr/chatapi/internal/models"
+	"github.com/hastenr/chatapi/internal/services/bot"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
 	"github.com/hastenr/chatapi/internal/services/message"
@@ -26,6 +27,7 @@ type Handler struct {
 	messageSvc  *message.Service
 	realtimeSvc *realtime.Service
 	deliverySvc *delivery.Service
+	botSvc      *bot.Service
 	jwtSecret   string
 	upgrader    websocket.Upgrader
 }
@@ -36,6 +38,7 @@ func NewHandler(
 	messageSvc *message.Service,
 	realtimeSvc *realtime.Service,
 	deliverySvc *delivery.Service,
+	botSvc *bot.Service,
 	cfg *config.Config,
 ) *Handler {
 	allowedOrigins := cfg.AllowedOrigins
@@ -71,6 +74,7 @@ func NewHandler(
 		messageSvc:  messageSvc,
 		realtimeSvc: realtimeSvc,
 		deliverySvc: deliverySvc,
+		botSvc:      botSvc,
 		jwtSecret:   cfg.JWTSecret,
 		upgrader:    websocket.Upgrader{CheckOrigin: checkOrigin},
 	}
@@ -236,6 +240,7 @@ func (h *Handler) handleSendMessage(tenantID, userID string, data interface{}) e
 	h.realtimeSvc.BroadcastToRoom(tenantID, roomID, broadcast)
 
 	go h.deliverySvc.HandleNewMessage(tenantID, roomID, message)
+	go h.botSvc.TriggerBots(tenantID, roomID, message)
 
 	return nil
 }

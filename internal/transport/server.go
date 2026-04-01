@@ -10,6 +10,7 @@ import (
 	"github.com/hastenr/chatapi/internal/db"
 	"github.com/hastenr/chatapi/internal/handlers/rest"
 	"github.com/hastenr/chatapi/internal/handlers/ws"
+	"github.com/hastenr/chatapi/internal/services/bot"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
 	"github.com/hastenr/chatapi/internal/services/message"
@@ -32,9 +33,10 @@ func NewServer(cfg *config.Config, db *db.DB, realtimeSvc *realtime.Service) *Se
 	notifSvc := notification.NewService(db.DB)
 	webhookSvc := webhook.NewService()
 	deliverySvc := delivery.NewService(db.DB, realtimeSvc, chatroomSvc, cfg.WebhookURL, cfg.WebhookSecret, webhookSvc)
+	botSvc := bot.NewService(db.DB, messageSvc, realtimeSvc, chatroomSvc, deliverySvc)
 
-	restHandler := rest.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, notifSvc, cfg)
-	wsHandler := ws.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, cfg)
+	restHandler := rest.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, notifSvc, botSvc, cfg)
+	wsHandler := ws.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, botSvc, cfg)
 
 	mux := http.NewServeMux()
 
@@ -50,6 +52,7 @@ func NewServer(cfg *config.Config, db *db.DB, realtimeSvc *realtime.Service) *Se
 	protectedMux.HandleFunc("GET /rooms/{room_id}", restHandler.HandleGetRoom)
 	protectedMux.HandleFunc("PATCH /rooms/{room_id}", restHandler.HandleUpdateRoom)
 	protectedMux.HandleFunc("GET /rooms/{room_id}/members", restHandler.HandleGetRoomMembers)
+	protectedMux.HandleFunc("POST /rooms/{room_id}/members", restHandler.HandleAddMember)
 	protectedMux.HandleFunc("POST /rooms/{room_id}/messages", restHandler.HandleSendMessage)
 	protectedMux.HandleFunc("GET /rooms/{room_id}/messages", restHandler.HandleGetMessages)
 	protectedMux.HandleFunc("DELETE /rooms/{room_id}/messages/{message_id}", restHandler.HandleDeleteMessage)
@@ -60,6 +63,10 @@ func NewServer(cfg *config.Config, db *db.DB, realtimeSvc *realtime.Service) *Se
 	protectedMux.HandleFunc("GET /subscriptions", restHandler.HandleListSubscriptions)
 	protectedMux.HandleFunc("DELETE /subscriptions/{id}", restHandler.HandleUnsubscribe)
 	protectedMux.HandleFunc("GET /admin/dead-letters", restHandler.HandleGetDeadLetters)
+	protectedMux.HandleFunc("POST /bots", restHandler.HandleCreateBot)
+	protectedMux.HandleFunc("GET /bots", restHandler.HandleListBots)
+	protectedMux.HandleFunc("GET /bots/{bot_id}", restHandler.HandleGetBot)
+	protectedMux.HandleFunc("DELETE /bots/{bot_id}", restHandler.HandleDeleteBot)
 
 	mux.Handle("/", restHandler.AuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		protectedMux.ServeHTTP(w, r)

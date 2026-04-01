@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/hastenr/chatapi/internal/config"
 	"github.com/hastenr/chatapi/internal/handlers/ws"
+	"github.com/hastenr/chatapi/internal/services/bot"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
 	"github.com/hastenr/chatapi/internal/services/message"
@@ -40,10 +41,11 @@ func newWSEnv(t *testing.T) *wsTestEnv {
 	realtimeSvc := realtime.NewService(db.DB, cfg.MaxConnectionsPerUser)
 	webhookSvc := webhook.NewService()
 	deliverySvc := delivery.NewService(db.DB, realtimeSvc, chatroomSvc, "", "", webhookSvc)
+	botSvc := bot.NewService(db.DB, messageSvc, realtimeSvc, chatroomSvc, deliverySvc)
 
 	t.Cleanup(func() { realtimeSvc.Shutdown(context.Background()) })
 
-	handler := ws.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, cfg)
+	handler := ws.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, botSvc, cfg)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", handler.HandleConnection)
