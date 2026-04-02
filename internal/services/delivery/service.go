@@ -1,7 +1,6 @@
 package delivery
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -9,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hastenr/chatapi/internal/models"
+	"github.com/hastenr/chatapi/internal/repository"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/realtime"
 	"github.com/hastenr/chatapi/internal/services/webhook"
@@ -16,7 +16,7 @@ import (
 
 // Service handles message and notification delivery with retries
 type Service struct {
-	db               *sql.DB
+	repo             repository.DeliveryRepository
 	realtimeSvc      *realtime.Service
 	chatroomSvc      *chatroom.Service
 	webhookSvc       *webhook.Service
@@ -29,7 +29,7 @@ type Service struct {
 
 // NewService creates a new delivery service
 func NewService(
-	db *sql.DB,
+	repo repository.DeliveryRepository,
 	realtimeSvc *realtime.Service,
 	chatroomSvc *chatroom.Service,
 	webhookURL string,
@@ -37,7 +37,7 @@ func NewService(
 	webhookSvc *webhook.Service,
 ) *Service {
 	return &Service{
-		db:            db,
+		repo:          repo,
 		realtimeSvc:   realtimeSvc,
 		chatroomSvc:   chatroomSvc,
 		webhookSvc:    webhookSvc,
@@ -53,40 +53,12 @@ func (s *Service) ProcessUndeliveredMessages(tenantID string, limit int) error {
 		limit = 50
 	}
 
-	query := `
-		SELECT id, tenant_id, user_id, chatroom_id, message_id, seq, attempts
-		FROM undelivered_messages
-		WHERE tenant_id = ? AND attempts < ?
-		ORDER BY created_at ASC
-		LIMIT ?
-	`
-
-	rows, err := s.db.Query(query, tenantID, s.maxAttempts, limit)
+	// Collect all rows before processing. SQLite does not allow writes
+	// to a table while a read cursor is open on it.
+	pending, err := s.repo.GetPendingUndelivered(tenantID, s.maxAttempts, limit)
 	if err != nil {
 		return fmt.Errorf("failed to get undelivered messages: %w", err)
 	}
-
-	// Collect all rows before closing the cursor. SQLite does not allow writes
-	// to a table while a read cursor is open on it.
-	var pending []models.UndeliveredMessage
-	for rows.Next() {
-		var msg models.UndeliveredMessage
-		err := rows.Scan(
-			&msg.ID,
-			&msg.TenantID,
-			&msg.UserID,
-			&msg.ChatroomID,
-			&msg.MessageID,
-			&msg.Seq,
-			&msg.Attempts,
-		)
-		if err != nil {
-			slog.Error("Failed to scan undelivered message", "error", err)
-			continue
-		}
-		pending = append(pending, msg)
-	}
-	rows.Close()
 
 	for i := range pending {
 		if err := s.attemptMessageDelivery(&pending[i]); err != nil {
@@ -108,7 +80,7 @@ func (s *Service) attemptMessageDelivery(msg *models.UndeliveredMessage) error {
 	s.deliveryAttempts.Add(1)
 	if s.realtimeSvc.IsUserOnline(msg.TenantID, msg.UserID) {
 		// Get the full message to send
-		fullMsg, err := s.getMessage(msg.TenantID, msg.MessageID)
+		fullMsg, err := s.repo.GetMessageByID(msg.TenantID, msg.MessageID)
 		if err != nil {
 			return fmt.Errorf("failed to get message: %w", err)
 		}
@@ -131,12 +103,12 @@ func (s *Service) attemptMessageDelivery(msg *models.UndeliveredMessage) error {
 		s.realtimeSvc.SendToUser(msg.TenantID, msg.UserID, messagePayload)
 
 		// Mark as delivered
-		return s.markMessageDelivered(msg.ID)
+		return s.repo.MarkMessageDelivered(msg.ID)
 	}
 
 	// User is offline, increment attempts
 	s.deliveryFailures.Add(1)
-	return s.incrementMessageAttempts(msg.ID)
+	return s.repo.IncrementMessageAttempts(msg.ID)
 }
 
 // HandleNewMessage queues undelivered messages and fires webhooks for offline room members.
@@ -174,7 +146,7 @@ func (s *Service) HandleNewMessage(tenantID, roomID string, message *models.Mess
 		}
 
 		// Queue for the delivery worker to retry
-		if err := s.queueUndelivered(tenantID, member.UserID, roomID, message.MessageID, message.Seq); err != nil {
+		if err := s.repo.QueueUndelivered(tenantID, member.UserID, roomID, message.MessageID, message.Seq); err != nil {
 			slog.Error("HandleNewMessage: failed to queue undelivered message",
 				"tenant_id", tenantID,
 				"user_id", member.UserID,
@@ -187,16 +159,6 @@ func (s *Service) HandleNewMessage(tenantID, roomID string, message *models.Mess
 			go s.webhookSvc.NotifyOfflineUser(s.webhookURL, s.webhookSecret, tenantID, roomID, member.UserID, room.Metadata, msgInfo)
 		}
 	}
-}
-
-// queueUndelivered inserts an entry into the undelivered_messages table.
-func (s *Service) queueUndelivered(tenantID, userID, roomID, messageID string, seq int) error {
-	query := `
-		INSERT INTO undelivered_messages (tenant_id, user_id, chatroom_id, message_id, seq)
-		VALUES (?, ?, ?, ?, ?)
-	`
-	_, err := s.db.Exec(query, tenantID, userID, roomID, messageID, seq)
-	return err
 }
 
 // DeliveryAttempts returns the total number of message delivery attempts since startup.
@@ -215,37 +177,18 @@ func (s *Service) ProcessNotifications(tenantID string, limit int) error {
 		limit = 50
 	}
 
-	rows, err := s.db.Query(`
-		SELECT notification_id, tenant_id, topic, payload, targets, attempts
-		FROM notifications
-		WHERE tenant_id = ? AND status IN ('pending', 'processing') AND attempts < ?
-		ORDER BY created_at ASC LIMIT ?`,
-		tenantID, s.maxAttempts, limit,
-	)
+	pending, err := s.repo.GetPendingNotifications(tenantID, s.maxAttempts, limit)
 	if err != nil {
 		return fmt.Errorf("failed to get pending notifications: %w", err)
 	}
-	defer rows.Close()
 
-	for rows.Next() {
-		var notif models.Notification
-		if err := rows.Scan(
-			&notif.NotificationID,
-			&notif.TenantID,
-			&notif.Topic,
-			&notif.Payload,
-			&notif.Targets,
-			&notif.Attempts,
-		); err != nil {
-			slog.Error("Failed to scan notification", "error", err)
-			continue
-		}
-		if err := s.attemptNotificationDelivery(&notif); err != nil {
+	for i := range pending {
+		if err := s.attemptNotificationDelivery(&pending[i]); err != nil {
 			slog.Warn("Failed to deliver notification",
 				"tenant_id", tenantID,
-				"notification_id", notif.NotificationID,
-				"topic", notif.Topic,
-				"attempts", notif.Attempts,
+				"notification_id", pending[i].NotificationID,
+				"topic", pending[i].Topic,
+				"attempts", pending[i].Attempts,
 				"error", err)
 		}
 	}
@@ -281,7 +224,7 @@ func (s *Service) attemptNotificationDelivery(notif *models.Notification) error 
 		s.realtimeSvc.SendToUser(notif.TenantID, userID, payload)
 	}
 
-	return s.markNotificationDelivered(notif.NotificationID)
+	return s.repo.MarkNotificationDelivered(notif.NotificationID)
 }
 
 // resolveRecipients determines which online users should receive a notification.
@@ -318,17 +261,9 @@ func (s *Service) resolveRecipients(notif *models.Notification) []string {
 
 	// Topic subscribers
 	if targets.TopicSubscribers {
-		rows, err := s.db.Query(
-			`SELECT subscriber_id FROM notification_subscriptions WHERE tenant_id = ? AND topic = ?`,
-			notif.TenantID, notif.Topic,
-		)
-		if err == nil {
-			defer rows.Close()
-			for rows.Next() {
-				var uid string
-				if rows.Scan(&uid) == nil {
-					add(uid)
-				}
+		if subscribers, err := s.repo.GetTopicSubscribers(notif.TenantID, notif.Topic); err == nil {
+			for _, uid := range subscribers {
+				add(uid)
 			}
 		}
 	}
@@ -343,42 +278,25 @@ func (s *Service) resolveRecipients(notif *models.Notification) []string {
 	for _, uid := range s.realtimeSvc.GetOnlineUsers(notif.TenantID) {
 		online[uid] = struct{}{}
 	}
-	var online_recipients []string
+	var onlineRecipients []string
 	for _, uid := range recipients {
 		if _, ok := online[uid]; ok {
-			online_recipients = append(online_recipients, uid)
+			onlineRecipients = append(onlineRecipients, uid)
 		}
 	}
-	return online_recipients
+	return onlineRecipients
 }
 
 // CleanupOldEntries removes old delivered entries to prevent unbounded growth
 func (s *Service) CleanupOldEntries(tenantID string, maxAge time.Duration) error {
 	cutoffTime := time.Now().Add(-maxAge)
 
-	// Clean up old undelivered messages that are marked as delivered
-	// (In practice, you'd have a separate delivered_messages table)
-
-	// For now, just clean up very old undelivered messages that have exceeded max attempts
-	query := `
-		DELETE FROM undelivered_messages
-		WHERE tenant_id = ? AND attempts >= ? AND created_at < ?
-	`
-
-	_, err := s.db.Exec(query, tenantID, s.maxAttempts, cutoffTime)
-	if err != nil {
-		return fmt.Errorf("failed to cleanup old undelivered messages: %w", err)
+	if err := s.repo.DeleteOldUndelivered(tenantID, s.maxAttempts, cutoffTime); err != nil {
+		return err
 	}
 
-	// Clean up old dead notifications
-	notifQuery := `
-		DELETE FROM notifications
-		WHERE tenant_id = ? AND status = 'dead' AND created_at < ?
-	`
-
-	_, err = s.db.Exec(notifQuery, tenantID, cutoffTime)
-	if err != nil {
-		return fmt.Errorf("failed to cleanup old notifications: %w", err)
+	if err := s.repo.DeleteOldNotifications(tenantID, cutoffTime); err != nil {
+		return err
 	}
 
 	slog.Info("Cleaned up old delivery entries",
@@ -386,58 +304,4 @@ func (s *Service) CleanupOldEntries(tenantID string, maxAge time.Duration) error
 		"max_age", maxAge)
 
 	return nil
-}
-
-// Helper methods
-
-func (s *Service) getMessage(tenantID, messageID string) (*models.Message, error) {
-	var msg models.Message
-	query := `
-		SELECT message_id, tenant_id, chatroom_id, sender_id, seq, content, meta, created_at
-		FROM messages
-		WHERE tenant_id = ? AND message_id = ?
-	`
-
-	err := s.db.QueryRow(query, tenantID, messageID).Scan(
-		&msg.MessageID,
-		&msg.TenantID,
-		&msg.ChatroomID,
-		&msg.SenderID,
-		&msg.Seq,
-		&msg.Content,
-		&msg.Meta,
-		&msg.CreatedAt,
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &msg, nil
-}
-
-func (s *Service) markMessageDelivered(id int) error {
-	query := `DELETE FROM undelivered_messages WHERE id = ?`
-	_, err := s.db.Exec(query, id)
-	return err
-}
-
-func (s *Service) incrementMessageAttempts(id int) error {
-	query := `
-		UPDATE undelivered_messages
-		SET attempts = attempts + 1, last_attempt_at = CURRENT_TIMESTAMP
-		WHERE id = ?
-	`
-	_, err := s.db.Exec(query, id)
-	return err
-}
-
-func (s *Service) markNotificationDelivered(notificationID string) error {
-	query := `
-		UPDATE notifications
-		SET status = 'delivered', last_attempt_at = CURRENT_TIMESTAMP
-		WHERE notification_id = ?
-	`
-	_, err := s.db.Exec(query, notificationID)
-	return err
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/hastenr/chatapi/internal/models"
+	"github.com/hastenr/chatapi/internal/repository/sqlite"
 	"github.com/hastenr/chatapi/internal/services/bot"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
@@ -20,12 +21,13 @@ func newBotSvc(t *testing.T) (*bot.Service, *message.Service, *chatroom.Service)
 	t.Helper()
 	db := testutil.NewTestDB(t)
 
-	chatroomSvc := chatroom.NewService(db.DB)
-	messageSvc := message.NewService(db.DB)
-	realtimeSvc := realtime.NewService(db.DB, 5)
+	roomRepo := sqlite.NewRoomRepository(db.DB)
+	chatroomSvc := chatroom.NewService(roomRepo)
+	messageSvc := message.NewService(sqlite.NewMessageRepository(db.DB))
+	realtimeSvc := realtime.NewService(roomRepo, 5)
 	webhookSvc := webhook.NewService()
-	deliverySvc := delivery.NewService(db.DB, realtimeSvc, chatroomSvc, "", "", webhookSvc)
-	botSvc := bot.NewService(db.DB, messageSvc, realtimeSvc, chatroomSvc, deliverySvc)
+	deliverySvc := delivery.NewService(sqlite.NewDeliveryRepository(db.DB), realtimeSvc, chatroomSvc, "", "", webhookSvc)
+	botSvc := bot.NewService(sqlite.NewBotRepository(db.DB), messageSvc, realtimeSvc, chatroomSvc, deliverySvc)
 
 	t.Cleanup(func() { realtimeSvc.Shutdown(context.Background()) })
 	return botSvc, messageSvc, chatroomSvc

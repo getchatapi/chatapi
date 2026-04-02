@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/hastenr/chatapi/internal/models"
+	"github.com/hastenr/chatapi/internal/repository/sqlite"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/tenant"
 	"github.com/hastenr/chatapi/internal/testutil"
@@ -12,11 +13,11 @@ import (
 func newSvc(t *testing.T) (svc *chatroom.Service, tenantID string) {
 	t.Helper()
 	db := testutil.NewTestDB(t)
-	ten, err := tenant.NewService(db.DB).CreateTenant("test")
+	ten, err := tenant.NewService(sqlite.NewTenantRepository(db.DB)).CreateTenant("test")
 	if err != nil {
 		t.Fatalf("CreateTenant: %v", err)
 	}
-	return chatroom.NewService(db.DB), ten.TenantID
+	return chatroom.NewService(sqlite.NewRoomRepository(db.DB)), ten.TenantID
 }
 
 // --- CreateRoom ---
@@ -153,8 +154,8 @@ func TestGetRoom_NotFound(t *testing.T) {
 
 func TestGetRoom_TenantIsolation(t *testing.T) {
 	db := testutil.NewTestDB(t)
-	svc := chatroom.NewService(db.DB)
-	tenantSvc := tenant.NewService(db.DB)
+	svc := chatroom.NewService(sqlite.NewRoomRepository(db.DB))
+	tenantSvc := tenant.NewService(sqlite.NewTenantRepository(db.DB))
 
 	t1, _ := tenantSvc.CreateTenant("t1")
 	t2, _ := tenantSvc.CreateTenant("t2")

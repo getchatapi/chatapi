@@ -11,6 +11,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/hastenr/chatapi/internal/config"
 	"github.com/hastenr/chatapi/internal/db"
+	"github.com/hastenr/chatapi/internal/repository/sqlite"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
 	"github.com/hastenr/chatapi/internal/services/realtime"
@@ -49,10 +50,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	realtimeSvc := realtime.NewService(database.DB, cfg.MaxConnectionsPerUser)
-	chatroomSvc := chatroom.NewService(database.DB)
+	roomRepo := sqlite.NewRoomRepository(database.DB)
+	delivRepo := sqlite.NewDeliveryRepository(database.DB)
+
+	realtimeSvc := realtime.NewService(roomRepo, cfg.MaxConnectionsPerUser)
+	chatroomSvc := chatroom.NewService(roomRepo)
 	webhookSvc := webhook.NewService()
-	deliverySvc := delivery.NewService(database.DB, realtimeSvc, chatroomSvc, cfg.WebhookURL, cfg.WebhookSecret, webhookSvc)
+	deliverySvc := delivery.NewService(delivRepo, realtimeSvc, chatroomSvc, cfg.WebhookURL, cfg.WebhookSecret, webhookSvc)
 
 	deliveryWorker := worker.NewDeliveryWorker(deliverySvc, cfg.WorkerInterval)
 	walWorker := worker.NewWALCheckpointWorker(database, 5*time.Minute)

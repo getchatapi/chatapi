@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/hastenr/chatapi/internal/models"
+	"github.com/hastenr/chatapi/internal/repository/sqlite"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/message"
 	"github.com/hastenr/chatapi/internal/services/tenant"
@@ -21,13 +22,13 @@ func newScenario(t *testing.T) *scenario {
 	t.Helper()
 	db := testutil.NewTestDB(t)
 
-	tenantSvc := tenant.NewService(db.DB)
+	tenantSvc := tenant.NewService(sqlite.NewTenantRepository(db.DB))
 	ten, err := tenantSvc.CreateTenant("test")
 	if err != nil {
 		t.Fatalf("CreateTenant: %v", err)
 	}
 
-	chatroomSvc := chatroom.NewService(db.DB)
+	chatroomSvc := chatroom.NewService(sqlite.NewRoomRepository(db.DB))
 	room, err := chatroomSvc.CreateRoom(ten.TenantID, &models.CreateRoomRequest{
 		Type:    "group",
 		Name:    "general",
@@ -40,7 +41,7 @@ func newScenario(t *testing.T) *scenario {
 	return &scenario{
 		tenantID: ten.TenantID,
 		roomID:   room.RoomID,
-		msgSvc:   message.NewService(db.DB),
+		msgSvc:   message.NewService(sqlite.NewMessageRepository(db.DB)),
 	}
 }
 
@@ -71,7 +72,7 @@ func TestSendMessage_AssignsSeq(t *testing.T) {
 
 func TestSendMessage_RoomNotFound(t *testing.T) {
 	db := testutil.NewTestDB(t)
-	svc := message.NewService(db.DB)
+	svc := message.NewService(sqlite.NewMessageRepository(db.DB))
 
 	_, err := svc.SendMessage("t1", "bad-room-id", "user1", &models.CreateMessageRequest{Content: "hi"})
 	if err == nil {

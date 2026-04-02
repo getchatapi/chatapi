@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/hastenr/chatapi/internal/config"
 	"github.com/hastenr/chatapi/internal/handlers/ws"
+	"github.com/hastenr/chatapi/internal/repository/sqlite"
 	"github.com/hastenr/chatapi/internal/services/bot"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
@@ -36,12 +37,13 @@ func newWSEnv(t *testing.T) *wsTestEnv {
 		JWTSecret:             testutil.TestJWTSecret,
 	}
 
-	chatroomSvc := chatroom.NewService(db.DB)
-	messageSvc := message.NewService(db.DB)
-	realtimeSvc := realtime.NewService(db.DB, cfg.MaxConnectionsPerUser)
+	roomRepo := sqlite.NewRoomRepository(db.DB)
+	chatroomSvc := chatroom.NewService(roomRepo)
+	messageSvc := message.NewService(sqlite.NewMessageRepository(db.DB))
+	realtimeSvc := realtime.NewService(roomRepo, cfg.MaxConnectionsPerUser)
 	webhookSvc := webhook.NewService()
-	deliverySvc := delivery.NewService(db.DB, realtimeSvc, chatroomSvc, "", "", webhookSvc)
-	botSvc := bot.NewService(db.DB, messageSvc, realtimeSvc, chatroomSvc, deliverySvc)
+	deliverySvc := delivery.NewService(sqlite.NewDeliveryRepository(db.DB), realtimeSvc, chatroomSvc, "", "", webhookSvc)
+	botSvc := bot.NewService(sqlite.NewBotRepository(db.DB), messageSvc, realtimeSvc, chatroomSvc, deliverySvc)
 
 	t.Cleanup(func() { realtimeSvc.Shutdown(context.Background()) })
 

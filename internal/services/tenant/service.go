@@ -3,7 +3,6 @@ package tenant
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -12,12 +11,13 @@ import (
 
 	"github.com/hastenr/chatapi/internal/models"
 	"github.com/hastenr/chatapi/internal/ratelimit"
+	"github.com/hastenr/chatapi/internal/repository"
 )
 
 // Service handles tenant operations
 type Service struct {
-	db            *sql.DB
-	rateLimiters  sync.Map // map[string]*ratelimit.TokenBucket
+	repo             repository.TenantRepository
+	rateLimiters     sync.Map // map[string]*ratelimit.TokenBucket
 	defaultRateLimit int
 }
 
@@ -29,7 +29,7 @@ type TenantConfig struct {
 	RateLimit            int    `json:"rate_limit"` // requests per second
 	// WebhookURL is called with a POST when a message arrives for an offline user.
 	// Payload: {"event":"message.new","tenant_id","room_id","recipient_id","room_metadata","message":{...}}
-	WebhookURL    string `json:"webhook_url,omitempty"`
+	WebhookURL string `json:"webhook_url,omitempty"`
 	// WebhookSecret is used to sign webhook payloads with HMAC-SHA256.
 	// The signature is sent in the X-ChatAPI-Signature header as "sha256=<hex>".
 	// If empty, payloads are sent unsigned.
@@ -37,9 +37,9 @@ type TenantConfig struct {
 }
 
 // NewService creates a new tenant service
-func NewService(db *sql.DB) *Service {
+func NewService(repo repository.TenantRepository) *Service {
 	return &Service{
-		db:               db,
+		repo:             repo,
 		defaultRateLimit: 100, // requests per second
 	}
 }
@@ -47,29 +47,12 @@ func NewService(db *sql.DB) *Service {
 // ValidateAPIKey validates an API key and returns the tenant.
 // The plaintext key is hashed before the DB lookup; the hash is never returned to callers.
 func (s *Service) ValidateAPIKey(apiKey string) (*models.Tenant, error) {
-	var tenant models.Tenant
-	query := `
-		SELECT tenant_id, name, config, created_at
-		FROM tenants
-		WHERE api_key_hash = ?
-	`
-
-	err := s.db.QueryRow(query, hashAPIKey(apiKey)).Scan(
-		&tenant.TenantID,
-		&tenant.Name,
-		&tenant.Config,
-		&tenant.CreatedAt,
-	)
-
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("invalid API key")
-	}
+	tenant, err := s.repo.GetByAPIKeyHash(hashAPIKey(apiKey))
 	if err != nil {
 		slog.Error("Failed to validate API key", "error", err)
-		return nil, fmt.Errorf("database error")
+		return nil, err
 	}
-
-	return &tenant, nil
+	return tenant, nil
 }
 
 // CreateTenant creates a new tenant with a generated API key
@@ -99,14 +82,9 @@ func (s *Service) CreateTenant(name string) (*models.Tenant, error) {
 	}
 
 	// Insert tenant — store the hash, not the plaintext key
-	query := `
-		INSERT INTO tenants (tenant_id, api_key_hash, name, config)
-		VALUES (?, ?, ?, ?)
-	`
-	_, err = s.db.Exec(query, tenantID, hashAPIKey(apiKey), name, string(configJSON))
-	if err != nil {
+	if err := s.repo.Create(tenantID, hashAPIKey(apiKey), name, string(configJSON)); err != nil {
 		slog.Error("Failed to create tenant", "error", err)
-		return nil, fmt.Errorf("failed to create tenant: %w", err)
+		return nil, err
 	}
 
 	// APIKey is set to the plaintext value here — this is the only time it is
@@ -124,11 +102,11 @@ func (s *Service) CreateTenant(name string) (*models.Tenant, error) {
 
 // generateTenantID generates a unique tenant ID
 func generateTenantID() (string, error) {
-	hex, err := generateRandomHex(8)
+	h, err := generateRandomHex(8)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("tenant_%s", hex), nil
+	return fmt.Sprintf("tenant_%s", h), nil
 }
 
 // generateAPIKey generates a random API key
@@ -138,11 +116,11 @@ func generateAPIKey() (string, error) {
 
 // generateRandomHex generates a random hex string of given byte length
 func generateRandomHex(length int) (string, error) {
-	bytes := make([]byte, length)
-	if _, err := rand.Read(bytes); err != nil {
+	b := make([]byte, length)
+	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("failed to generate random bytes: %w", err)
 	}
-	return hex.EncodeToString(bytes), nil
+	return hex.EncodeToString(b), nil
 }
 
 // hashAPIKey returns the SHA-256 hex digest of a plaintext API key.
@@ -154,19 +132,16 @@ func hashAPIKey(plaintext string) string {
 
 // GetTenantConfig returns the configuration for a tenant
 func (s *Service) GetTenantConfig(tenantID string) (*TenantConfig, error) {
-	var configJSON string
-	query := `SELECT config FROM tenants WHERE tenant_id = ?`
-
-	err := s.db.QueryRow(query, tenantID).Scan(&configJSON)
+	configJSON, err := s.repo.GetConfig(tenantID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get tenant config: %w", err)
+		return nil, err
 	}
 
 	config := &TenantConfig{
-		MaxMessageSize:      4096, // 4KB default
-		RetryLimit:          5,
+		MaxMessageSize:       4096, // 4KB default
+		RetryLimit:           5,
 		DurableNotifications: true,
-		RateLimit:           s.defaultRateLimit,
+		RateLimit:            s.defaultRateLimit,
 	}
 
 	if configJSON != "" {
@@ -206,28 +181,5 @@ func (s *Service) CheckRateLimit(tenantID string) error {
 
 // ListTenants returns all tenants (admin operation). The API key hash is not included.
 func (s *Service) ListTenants() ([]*models.Tenant, error) {
-	query := `SELECT tenant_id, name, config, created_at FROM tenants ORDER BY created_at DESC`
-
-	rows, err := s.db.Query(query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list tenants: %w", err)
-	}
-	defer rows.Close()
-
-	var tenants []*models.Tenant
-	for rows.Next() {
-		var tenant models.Tenant
-		err := rows.Scan(
-			&tenant.TenantID,
-			&tenant.Name,
-			&tenant.Config,
-			&tenant.CreatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan tenant: %w", err)
-		}
-		tenants = append(tenants, &tenant)
-	}
-
-	return tenants, nil
+	return s.repo.List()
 }

@@ -5,13 +5,19 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/hastenr/chatapi/internal/repository/sqlite"
 	"github.com/hastenr/chatapi/internal/services/tenant"
 	"github.com/hastenr/chatapi/internal/testutil"
 )
 
-func TestCreateTenant_ReturnsPlaintextKey(t *testing.T) {
+func newTenantSvc(t *testing.T) *tenant.Service {
+	t.Helper()
 	db := testutil.NewTestDB(t)
-	svc := tenant.NewService(db.DB)
+	return tenant.NewService(sqlite.NewTenantRepository(db.DB))
+}
+
+func TestCreateTenant_ReturnsPlaintextKey(t *testing.T) {
+	svc := newTenantSvc(t)
 
 	got, err := svc.CreateTenant("acme")
 	if err != nil {
@@ -30,7 +36,7 @@ func TestCreateTenant_ReturnsPlaintextKey(t *testing.T) {
 
 func TestCreateTenant_KeyHashedInDB(t *testing.T) {
 	db := testutil.NewTestDB(t)
-	svc := tenant.NewService(db.DB)
+	svc := tenant.NewService(sqlite.NewTenantRepository(db.DB))
 
 	created, err := svc.CreateTenant("test")
 	if err != nil {
@@ -55,8 +61,7 @@ func TestCreateTenant_KeyHashedInDB(t *testing.T) {
 }
 
 func TestValidateAPIKey_ValidKey(t *testing.T) {
-	db := testutil.NewTestDB(t)
-	svc := tenant.NewService(db.DB)
+	svc := newTenantSvc(t)
 
 	created, err := svc.CreateTenant("test")
 	if err != nil {
@@ -73,8 +78,7 @@ func TestValidateAPIKey_ValidKey(t *testing.T) {
 }
 
 func TestValidateAPIKey_InvalidKey(t *testing.T) {
-	db := testutil.NewTestDB(t)
-	svc := tenant.NewService(db.DB)
+	svc := newTenantSvc(t)
 
 	_, err := svc.ValidateAPIKey("not-a-real-key")
 	if err == nil {
@@ -83,8 +87,7 @@ func TestValidateAPIKey_InvalidKey(t *testing.T) {
 }
 
 func TestValidateAPIKey_WrongKey(t *testing.T) {
-	db := testutil.NewTestDB(t)
-	svc := tenant.NewService(db.DB)
+	svc := newTenantSvc(t)
 
 	if _, err := svc.CreateTenant("test"); err != nil {
 		t.Fatalf("CreateTenant() error = %v", err)
@@ -98,8 +101,7 @@ func TestValidateAPIKey_WrongKey(t *testing.T) {
 }
 
 func TestValidateAPIKey_DoesNotReturnHash(t *testing.T) {
-	db := testutil.NewTestDB(t)
-	svc := tenant.NewService(db.DB)
+	svc := newTenantSvc(t)
 
 	created, _ := svc.CreateTenant("test")
 	got, err := svc.ValidateAPIKey(created.APIKey)
@@ -113,8 +115,7 @@ func TestValidateAPIKey_DoesNotReturnHash(t *testing.T) {
 }
 
 func TestCheckRateLimit_AllowsFirstRequest(t *testing.T) {
-	db := testutil.NewTestDB(t)
-	svc := tenant.NewService(db.DB)
+	svc := newTenantSvc(t)
 
 	created, err := svc.CreateTenant("test")
 	if err != nil {

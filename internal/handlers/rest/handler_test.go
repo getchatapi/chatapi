@@ -10,6 +10,7 @@ import (
 
 	"github.com/hastenr/chatapi/internal/config"
 	"github.com/hastenr/chatapi/internal/handlers/rest"
+	"github.com/hastenr/chatapi/internal/repository/sqlite"
 	"github.com/hastenr/chatapi/internal/services/bot"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
@@ -30,13 +31,14 @@ func newTestHandler(t *testing.T) *rest.Handler {
 		MaxConnectionsPerUser: 5,
 	}
 
-	chatroomSvc := chatroom.NewService(db.DB)
-	messageSvc := message.NewService(db.DB)
-	realtimeSvc := realtime.NewService(db.DB, 5)
+	roomRepo := sqlite.NewRoomRepository(db.DB)
+	chatroomSvc := chatroom.NewService(roomRepo)
+	messageSvc := message.NewService(sqlite.NewMessageRepository(db.DB))
+	realtimeSvc := realtime.NewService(roomRepo, 5)
 	webhookSvc := webhook.NewService()
-	deliverySvc := delivery.NewService(db.DB, realtimeSvc, chatroomSvc, "", "", webhookSvc)
-	notifSvc := notification.NewService(db.DB)
-	botSvc := bot.NewService(db.DB, messageSvc, realtimeSvc, chatroomSvc, deliverySvc)
+	deliverySvc := delivery.NewService(sqlite.NewDeliveryRepository(db.DB), realtimeSvc, chatroomSvc, "", "", webhookSvc)
+	notifSvc := notification.NewService(sqlite.NewNotificationRepository(db.DB))
+	botSvc := bot.NewService(sqlite.NewBotRepository(db.DB), messageSvc, realtimeSvc, chatroomSvc, deliverySvc)
 
 	t.Cleanup(func() { realtimeSvc.Shutdown(context.Background()) })
 

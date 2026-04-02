@@ -8,9 +8,9 @@ import (
 
 	"github.com/hastenr/chatapi/internal/config"
 	"github.com/hastenr/chatapi/internal/db"
-	"github.com/hastenr/chatapi/internal/handlers/mcp"
 	"github.com/hastenr/chatapi/internal/handlers/rest"
 	"github.com/hastenr/chatapi/internal/handlers/ws"
+	"github.com/hastenr/chatapi/internal/repository/sqlite"
 	"github.com/hastenr/chatapi/internal/services/bot"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
@@ -28,14 +28,21 @@ type Server struct {
 }
 
 // NewServer creates and wires up the HTTP server
-func NewServer(cfg *config.Config, db *db.DB, realtimeSvc *realtime.Service) *Server {
-	chatroomSvc := chatroom.NewService(db.DB)
-	messageSvc := message.NewService(db.DB)
-	notifSvc := notification.NewService(db.DB)
+func NewServer(cfg *config.Config, database *db.DB, realtimeSvc *realtime.Service) *Server {
+	// 1. Repositories
+	roomRepo := sqlite.NewRoomRepository(database.DB)
+	msgRepo := sqlite.NewMessageRepository(database.DB)
+	delivRepo := sqlite.NewDeliveryRepository(database.DB)
+	notifRepo := sqlite.NewNotificationRepository(database.DB)
+	botRepo := sqlite.NewBotRepository(database.DB)
+
+	// 2. Services (order matters — later services depend on earlier ones)
+	chatroomSvc := chatroom.NewService(roomRepo)
+	messageSvc := message.NewService(msgRepo)
+	notifSvc := notification.NewService(notifRepo)
 	webhookSvc := webhook.NewService()
-	deliverySvc := delivery.NewService(db.DB, realtimeSvc, chatroomSvc, cfg.WebhookURL, cfg.WebhookSecret, webhookSvc)
-	botSvc := bot.NewService(db.DB, messageSvc, realtimeSvc, chatroomSvc, deliverySvc)
-	mcpHandler := mcp.NewHandler(messageSvc, chatroomSvc, realtimeSvc, deliverySvc, botSvc, cfg.JWTSecret)
+	deliverySvc := delivery.NewService(delivRepo, realtimeSvc, chatroomSvc, cfg.WebhookURL, cfg.WebhookSecret, webhookSvc)
+	botSvc := bot.NewService(botRepo, messageSvc, realtimeSvc, chatroomSvc, deliverySvc)
 
 	restHandler := rest.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, notifSvc, botSvc, cfg)
 	wsHandler := ws.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, botSvc, cfg)
@@ -46,10 +53,6 @@ func NewServer(cfg *config.Config, db *db.DB, realtimeSvc *realtime.Service) *Se
 	mux.HandleFunc("/health", restHandler.HandleHealth)
 	mux.HandleFunc("/metrics", restHandler.HandleMetrics)
 	mux.HandleFunc("/ws", wsHandler.HandleConnection)
-
-	// MCP routes — JWT via ?token= or Authorization header
-	mux.HandleFunc("/mcp/sse", mcpHandler.HandleSSE)
-	mux.HandleFunc("/mcp/message", mcpHandler.HandleMessage)
 
 	// Protected routes — JWT required
 	protectedMux := http.NewServeMux()

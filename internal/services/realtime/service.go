@@ -3,7 +3,6 @@ package realtime
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -13,6 +12,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/hastenr/chatapi/internal/broker"
+	"github.com/hastenr/chatapi/internal/repository"
 )
 
 type wsToken struct {
@@ -24,40 +25,32 @@ type wsToken struct {
 // Service manages WebSocket connections and real-time messaging
 type Service struct {
 	mu                    sync.RWMutex
-	db                    *sql.DB
+	roomRepo              repository.RoomRepository
+	broker                broker.Broker
 	connections           map[string]map[string][]*websocket.Conn // tenant -> user -> connections
 	presence              map[string]map[string]time.Time         // tenant -> user -> last seen
 	wsTokens              sync.Map                                // token -> *wsToken
-	broadcastCh           chan *broadcastMessage
 	shutdownCh            chan struct{}
 	shutdownOnce          sync.Once
 	maxConnectionsPerUser int
 	activeConnections     atomic.Int64
-	droppedBroadcasts     atomic.Int64
-}
-
-type broadcastMessage struct {
-	tenantID string
-	roomID   string
-	message  interface{}
 }
 
 // NewService creates a new realtime service
-func NewService(db *sql.DB, maxConnectionsPerUser int) *Service {
+func NewService(roomRepo repository.RoomRepository, maxConnectionsPerUser int) *Service {
 	if maxConnectionsPerUser <= 0 {
 		maxConnectionsPerUser = 5
 	}
 	s := &Service{
-		db:                   db,
+		roomRepo:             roomRepo,
 		connections:          make(map[string]map[string][]*websocket.Conn),
 		presence:             make(map[string]map[string]time.Time),
-		broadcastCh:          make(chan *broadcastMessage, 1000),
 		shutdownCh:           make(chan struct{}),
 		maxConnectionsPerUser: maxConnectionsPerUser,
 	}
 
-	// Start broadcast worker
-	go s.broadcastWorker()
+	// Create the broker with this service's deliverToRoom as the delivery function
+	s.broker = broker.NewLocalBroker(s.deliverToRoom)
 
 	// Start presence cleanup worker
 	go s.presenceCleanupWorker()
@@ -141,26 +134,50 @@ func (s *Service) UnregisterConnection(tenantID, userID string, conn *websocket.
 }
 
 // BroadcastToRoom broadcasts a message to all users in a room.
-// If the broadcast channel is full the message is dropped — chat messages are
+// If the broker channel is full the message is dropped — chat messages are
 // already persisted and will be delivered by the delivery worker, but ephemeral
-// events (typing, presence) will be lost. A running drop counter is logged so
-// operators can detect sustained channel saturation.
+// events (typing, presence) will be lost.
 func (s *Service) BroadcastToRoom(tenantID, roomID string, message interface{}) {
-	select {
-	case s.broadcastCh <- &broadcastMessage{tenantID: tenantID, roomID: roomID, message: message}:
-	default:
-		dropped := s.droppedBroadcasts.Add(1)
-		msgType := ""
-		if m, ok := message.(map[string]interface{}); ok {
-			if t, ok := m["type"].(string); ok {
-				msgType = t
-			}
-		}
-		slog.Error("Broadcast channel full, message dropped",
+	payload, err := json.Marshal(message)
+	if err != nil {
+		slog.Error("BroadcastToRoom: failed to marshal message",
 			"tenant_id", tenantID,
 			"room_id", roomID,
-			"message_type", msgType,
-			"dropped_total", dropped)
+			"error", err)
+		return
+	}
+	s.broker.Broadcast(tenantID, roomID, payload)
+}
+
+// deliverToRoom is called by the broker for each message.
+// It looks up room members and delivers to local WS connections.
+func (s *Service) deliverToRoom(tenantID, roomID string, payload []byte) {
+	roomMembers, err := s.roomRepo.GetMemberIDs(tenantID, roomID)
+	if err != nil {
+		slog.Error("deliverToRoom: failed to get room members",
+			"tenant_id", tenantID,
+			"room_id", roomID,
+			"error", err)
+		return
+	}
+
+	s.mu.RLock()
+	tenantConnections := s.connections[tenantID]
+	s.mu.RUnlock()
+
+	// Only deliver to room members who are connected
+	for _, memberID := range roomMembers {
+		if connections, exists := tenantConnections[memberID]; exists {
+			for _, conn := range connections {
+				if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+					slog.Warn("Failed to broadcast message to user",
+						"tenant_id", tenantID,
+						"user_id", memberID,
+						"room_id", roomID,
+						"error", err)
+				}
+			}
+		}
 	}
 }
 
@@ -214,13 +231,19 @@ func (s *Service) GetOnlineUsers(tenantID string) []string {
 	var onlineUsers []string
 	if tenantPresence, exists := s.presence[tenantID]; exists {
 		for userID := range tenantPresence {
-			if s.IsUserOnline(tenantID, userID) {
+			if s.isUserOnlineLocked(tenantID, userID) {
 				onlineUsers = append(onlineUsers, userID)
 			}
 		}
 	}
 
 	return onlineUsers
+}
+
+// isUserOnlineLocked checks online status without acquiring mu (caller must hold at least RLock).
+func (s *Service) isUserOnlineLocked(tenantID, userID string) bool {
+	connections, exists := s.connections[tenantID][userID]
+	return exists && len(connections) > 0
 }
 
 // BroadcastPresenceUpdate broadcasts presence changes
@@ -257,85 +280,6 @@ func (s *Service) broadcastPresenceUpdate(tenantID, userID, status string) {
 			}
 		}
 	}
-}
-
-// broadcastWorker processes broadcast messages
-func (s *Service) broadcastWorker() {
-	for {
-		select {
-		case msg := <-s.broadcastCh:
-			s.processBroadcast(msg)
-		case <-s.shutdownCh:
-			return
-		}
-	}
-}
-
-// processBroadcast handles a single broadcast message
-func (s *Service) processBroadcast(msg *broadcastMessage) {
-	// Query room members from database
-	roomMembers, err := s.getRoomMembers(msg.tenantID, msg.roomID)
-	if err != nil {
-		slog.Error("Failed to get room members for broadcast",
-			"tenant_id", msg.tenantID,
-			"room_id", msg.roomID,
-			"error", err)
-		return
-	}
-
-	messageBytes, err := json.Marshal(msg.message)
-	if err != nil {
-		slog.Error("Failed to marshal broadcast message",
-			"tenant_id", msg.tenantID,
-			"room_id", msg.roomID,
-			"error", err)
-		return
-	}
-
-	s.mu.RLock()
-	tenantConnections := s.connections[msg.tenantID]
-	s.mu.RUnlock()
-
-	// Only broadcast to room members who are connected
-	for _, memberID := range roomMembers {
-		if connections, exists := tenantConnections[memberID]; exists {
-			for _, conn := range connections {
-				if err := conn.WriteMessage(websocket.TextMessage, messageBytes); err != nil {
-					slog.Warn("Failed to broadcast message to user",
-						"tenant_id", msg.tenantID,
-						"user_id", memberID,
-						"room_id", msg.roomID,
-						"error", err)
-				}
-			}
-		}
-	}
-}
-
-// getRoomMembers retrieves the list of user IDs who are members of a room
-func (s *Service) getRoomMembers(tenantID, roomID string) ([]string, error) {
-	query := `
-		SELECT user_id
-		FROM room_members
-		WHERE tenant_id = ? AND chatroom_id = ?
-	`
-
-	rows, err := s.db.Query(query, tenantID, roomID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var members []string
-	for rows.Next() {
-		var userID string
-		if err := rows.Scan(&userID); err != nil {
-			return nil, err
-		}
-		members = append(members, userID)
-	}
-
-	return members, rows.Err()
 }
 
 // presenceCleanupWorker periodically cleans up stale presence data
@@ -383,7 +327,7 @@ func (s *Service) ActiveConnections() int64 {
 
 // DroppedBroadcasts returns the total number of messages dropped due to a full broadcast channel.
 func (s *Service) DroppedBroadcasts() int64 {
-	return s.droppedBroadcasts.Load()
+	return s.broker.DroppedCount()
 }
 
 // IssueWSToken creates a one-time, short-lived token for browser WebSocket auth.
@@ -418,6 +362,7 @@ func (s *Service) ConsumeWSToken(token string) (tenantID, userID string, ok bool
 // Shutdown gracefully shuts down the realtime service
 func (s *Service) Shutdown(ctx context.Context) error {
 	s.shutdownOnce.Do(func() {
+		s.broker.Close()
 		close(s.shutdownCh)
 	})
 

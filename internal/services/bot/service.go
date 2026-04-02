@@ -4,7 +4,6 @@ package bot
 import (
 	"bufio"
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,17 +12,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/hastenr/chatapi/internal/models"
+	"github.com/hastenr/chatapi/internal/repository"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
 	"github.com/hastenr/chatapi/internal/services/message"
 	"github.com/hastenr/chatapi/internal/services/realtime"
+	"github.com/google/uuid"
 )
 
 // Service manages bot registration and LLM triggering.
 type Service struct {
-	db          *sql.DB
+	repo        repository.BotRepository
 	messageSvc  *message.Service
 	realtimeSvc *realtime.Service
 	chatroomSvc *chatroom.Service
@@ -33,14 +33,14 @@ type Service struct {
 
 // NewService creates a new bot service.
 func NewService(
-	db *sql.DB,
+	repo repository.BotRepository,
 	messageSvc *message.Service,
 	realtimeSvc *realtime.Service,
 	chatroomSvc *chatroom.Service,
 	deliverySvc *delivery.Service,
 ) *Service {
 	return &Service{
-		db:          db,
+		repo:        repo,
 		messageSvc:  messageSvc,
 		realtimeSvc: realtimeSvc,
 		chatroomSvc: chatroomSvc,
@@ -68,32 +68,9 @@ func (s *Service) CreateBot(req *models.CreateBotRequest) (*models.Bot, error) {
 		}
 	}
 
-	maxContext := req.MaxContext
-	if maxContext <= 0 {
-		maxContext = 20
-	}
-
-	bot := &models.Bot{
-		BotID:        uuid.New().String(),
-		Name:         req.Name,
-		Mode:         req.Mode,
-		Provider:     req.Provider,
-		BaseURL:      req.BaseURL,
-		Model:        req.Model,
-		APIKey:       req.APIKey,
-		SystemPrompt: req.SystemPrompt,
-		MaxContext:   maxContext,
-		CreatedAt:    time.Now().UTC(),
-	}
-
-	_, err := s.db.Exec(`
-		INSERT INTO bots (bot_id, name, mode, provider, base_url, model, api_key, system_prompt, max_context, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		bot.BotID, bot.Name, bot.Mode, bot.Provider, bot.BaseURL,
-		bot.Model, bot.APIKey, bot.SystemPrompt, bot.MaxContext, bot.CreatedAt,
-	)
+	bot, err := s.repo.Create(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create bot: %w", err)
+		return nil, err
 	}
 
 	slog.Info("Created bot", "bot_id", bot.BotID, "name", bot.Name, "mode", bot.Mode)
@@ -102,70 +79,18 @@ func (s *Service) CreateBot(req *models.CreateBotRequest) (*models.Bot, error) {
 
 // GetBot retrieves a bot by ID.
 func (s *Service) GetBot(botID string) (*models.Bot, error) {
-	var bot models.Bot
-	var provider, baseURL, model, apiKey, systemPrompt sql.NullString
-	err := s.db.QueryRow(`
-		SELECT bot_id, name, mode, provider, base_url, model, api_key, system_prompt, max_context, created_at
-		FROM bots WHERE bot_id = ?`, botID,
-	).Scan(
-		&bot.BotID, &bot.Name, &bot.Mode,
-		&provider, &baseURL, &model, &apiKey, &systemPrompt,
-		&bot.MaxContext, &bot.CreatedAt,
-	)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("bot not found")
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get bot: %w", err)
-	}
-	bot.Provider = provider.String
-	bot.BaseURL = baseURL.String
-	bot.Model = model.String
-	bot.APIKey = apiKey.String
-	bot.SystemPrompt = systemPrompt.String
-	return &bot, nil
+	return s.repo.GetByID(botID)
 }
 
 // ListBots returns all registered bots.
 func (s *Service) ListBots() ([]*models.Bot, error) {
-	rows, err := s.db.Query(`
-		SELECT bot_id, name, mode, provider, base_url, model, api_key, system_prompt, max_context, created_at
-		FROM bots ORDER BY created_at DESC`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list bots: %w", err)
-	}
-	defer rows.Close()
-
-	var bots []*models.Bot
-	for rows.Next() {
-		var bot models.Bot
-		var provider, baseURL, model, apiKey, systemPrompt sql.NullString
-		if err := rows.Scan(
-			&bot.BotID, &bot.Name, &bot.Mode,
-			&provider, &baseURL, &model, &apiKey, &systemPrompt,
-			&bot.MaxContext, &bot.CreatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("failed to scan bot: %w", err)
-		}
-		bot.Provider = provider.String
-		bot.BaseURL = baseURL.String
-		bot.Model = model.String
-		bot.APIKey = apiKey.String
-		bot.SystemPrompt = systemPrompt.String
-		bots = append(bots, &bot)
-	}
-	return bots, rows.Err()
+	return s.repo.List()
 }
 
 // DeleteBot removes a bot by ID.
 func (s *Service) DeleteBot(botID string) error {
-	result, err := s.db.Exec(`DELETE FROM bots WHERE bot_id = ?`, botID)
-	if err != nil {
-		return fmt.Errorf("failed to delete bot: %w", err)
-	}
-	n, _ := result.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("bot not found")
+	if err := s.repo.Delete(botID); err != nil {
+		return err
 	}
 	slog.Info("Deleted bot", "bot_id", botID)
 	return nil
@@ -173,9 +98,8 @@ func (s *Service) DeleteBot(botID string) error {
 
 // IsBot reports whether the given user ID belongs to a registered bot.
 func (s *Service) IsBot(userID string) bool {
-	var id string
-	err := s.db.QueryRow(`SELECT bot_id FROM bots WHERE bot_id = ?`, userID).Scan(&id)
-	return err == nil
+	exists, err := s.repo.Exists(userID)
+	return err == nil && exists
 }
 
 // --- Triggering ---

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/hastenr/chatapi/internal/models"
+	"github.com/hastenr/chatapi/internal/repository/sqlite"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
 	"github.com/hastenr/chatapi/internal/services/message"
@@ -28,7 +29,8 @@ func newDeliveryScenario(t *testing.T) *deliveryScenario {
 	t.Helper()
 	db := testutil.NewTestDB(t)
 
-	chatroomSvc := chatroom.NewService(db.DB)
+	roomRepo := sqlite.NewRoomRepository(db.DB)
+	chatroomSvc := chatroom.NewService(roomRepo)
 	room, err := chatroomSvc.CreateRoom(testTenantID, &models.CreateRoomRequest{
 		Type:    "group",
 		Name:    "general",
@@ -38,13 +40,13 @@ func newDeliveryScenario(t *testing.T) *deliveryScenario {
 		t.Fatalf("CreateRoom: %v", err)
 	}
 
-	realtimeSvc := realtime.NewService(db.DB, 5)
+	realtimeSvc := realtime.NewService(roomRepo, 5)
 	t.Cleanup(func() { realtimeSvc.Shutdown(context.Background()) })
 
 	webhookSvc := webhook.NewService()
-	deliverySvc := delivery.NewService(db.DB, realtimeSvc, chatroomSvc, "", "", webhookSvc)
-	messageSvc := message.NewService(db.DB)
-	notifSvc := notification.NewService(db.DB)
+	deliverySvc := delivery.NewService(sqlite.NewDeliveryRepository(db.DB), realtimeSvc, chatroomSvc, "", "", webhookSvc)
+	messageSvc := message.NewService(sqlite.NewMessageRepository(db.DB))
+	notifSvc := notification.NewService(sqlite.NewNotificationRepository(db.DB))
 
 	return &deliveryScenario{
 		roomID:      room.RoomID,

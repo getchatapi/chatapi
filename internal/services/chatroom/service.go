@@ -1,24 +1,23 @@
 package chatroom
 
 import (
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"sort"
-	"strings"
 
-	"github.com/hastenr/chatapi/internal/models"
 	"github.com/google/uuid"
+	"github.com/hastenr/chatapi/internal/models"
+	"github.com/hastenr/chatapi/internal/repository"
 )
 
 // Service handles chatroom operations
 type Service struct {
-	db *sql.DB
+	repo repository.RoomRepository
 }
 
 // NewService creates a new chatroom service
-func NewService(db *sql.DB) *Service {
-	return &Service{db: db}
+func NewService(repo repository.RoomRepository) *Service {
+	return &Service{repo: repo}
 }
 
 // CreateRoom creates a new chatroom
@@ -40,7 +39,7 @@ func (s *Service) CreateRoom(tenantID string, req *models.CreateRoomRequest) (*m
 	}
 
 	// Add members to the room
-	if err := s.addMembers(tenantID, room.RoomID, req.Members); err != nil {
+	if err := s.repo.AddMembers(tenantID, room.RoomID, req.Members); err != nil {
 		return nil, fmt.Errorf("failed to add members: %w", err)
 	}
 
@@ -62,40 +61,17 @@ func (s *Service) createDMRoom(tenantID string, req *models.CreateRoomRequest) (
 	uniqueKey := fmt.Sprintf("dm:%s:%s", members[0], members[1])
 
 	// Check if DM already exists
-	var existingRoom models.Room
-	var exName, exMetadata sql.NullString
-	query := `
-		SELECT room_id, tenant_id, type, unique_key, name, last_seq, metadata, created_at
-		FROM rooms
-		WHERE tenant_id = ? AND unique_key = ?
-	`
-
-	err := s.db.QueryRow(query, tenantID, uniqueKey).Scan(
-		&existingRoom.RoomID,
-		&existingRoom.TenantID,
-		&existingRoom.Type,
-		&existingRoom.UniqueKey,
-		&exName,
-		&existingRoom.LastSeq,
-		&exMetadata,
-		&existingRoom.CreatedAt,
-	)
-
-	if err == nil {
-		// Room already exists
-		existingRoom.Name = exName.String
-		existingRoom.Metadata = exMetadata.String
-		return &existingRoom, nil
-	}
-
-	if err != sql.ErrNoRows {
+	existing, err := s.repo.GetByUniqueKey(tenantID, uniqueKey)
+	if err != nil {
 		return nil, fmt.Errorf("failed to check existing DM: %w", err)
+	}
+	if existing != nil {
+		return existing, nil
 	}
 
 	// Create new DM room
-	roomID := generateRoomID()
 	room := &models.Room{
-		RoomID:    roomID,
+		RoomID:    generateRoomID(),
 		TenantID:  tenantID,
 		Type:      "dm",
 		UniqueKey: uniqueKey,
@@ -104,13 +80,7 @@ func (s *Service) createDMRoom(tenantID string, req *models.CreateRoomRequest) (
 		LastSeq:   0,
 	}
 
-	insertQuery := `
-		INSERT INTO rooms (room_id, tenant_id, type, unique_key, name, metadata, last_seq)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`
-
-	_, err = s.db.Exec(insertQuery, room.RoomID, room.TenantID, room.Type, room.UniqueKey, room.Name, room.Metadata, room.LastSeq)
-	if err != nil {
+	if err := s.repo.Create(tenantID, room); err != nil {
 		return nil, fmt.Errorf("failed to create DM room: %w", err)
 	}
 
@@ -123,9 +93,8 @@ func (s *Service) createGroupRoom(tenantID string, req *models.CreateRoomRequest
 		return nil, fmt.Errorf("group/channel rooms must have at least 2 members")
 	}
 
-	roomID := generateRoomID()
 	room := &models.Room{
-		RoomID:   roomID,
+		RoomID:   generateRoomID(),
 		TenantID: tenantID,
 		Type:     req.Type,
 		Name:     req.Name,
@@ -133,229 +102,54 @@ func (s *Service) createGroupRoom(tenantID string, req *models.CreateRoomRequest
 		LastSeq:  0,
 	}
 
-	query := `
-		INSERT INTO rooms (room_id, tenant_id, type, name, metadata, last_seq)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`
-
-	_, err := s.db.Exec(query, room.RoomID, room.TenantID, room.Type, room.Name, room.Metadata, room.LastSeq)
-	if err != nil {
+	if err := s.repo.Create(tenantID, room); err != nil {
 		return nil, fmt.Errorf("failed to create group room: %w", err)
 	}
 
 	return room, nil
 }
 
-// addMembers adds members to a room
-func (s *Service) addMembers(tenantID, roomID string, userIDs []string) error {
-	if len(userIDs) == 0 {
-		return nil
-	}
-
-	// Use a transaction for atomicity
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	query := `
-		INSERT OR IGNORE INTO room_members (chatroom_id, tenant_id, user_id, role)
-		VALUES (?, ?, ?, 'member')
-	`
-
-	for _, userID := range userIDs {
-		_, err = tx.Exec(query, roomID, tenantID, userID)
-		if err != nil {
-			return fmt.Errorf("failed to add member %s: %w", userID, err)
-		}
-	}
-
-	return tx.Commit()
-}
-
 // GetRoom retrieves a room by ID
 func (s *Service) GetRoom(tenantID, roomID string) (*models.Room, error) {
-	var room models.Room
-	var uniqueKey, name, metadata sql.NullString
-	query := `
-		SELECT room_id, tenant_id, type, unique_key, name, last_seq, metadata, created_at
-		FROM rooms
-		WHERE tenant_id = ? AND room_id = ?
-	`
-
-	err := s.db.QueryRow(query, tenantID, roomID).Scan(
-		&room.RoomID,
-		&room.TenantID,
-		&room.Type,
-		&uniqueKey,
-		&name,
-		&room.LastSeq,
-		&metadata,
-		&room.CreatedAt,
-	)
-
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("room not found")
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get room: %w", err)
-	}
-
-	room.UniqueKey = uniqueKey.String
-	room.Name = name.String
-	room.Metadata = metadata.String
-	return &room, nil
+	return s.repo.GetByID(tenantID, roomID)
 }
 
 // GetRoomMembers retrieves all members of a room
 func (s *Service) GetRoomMembers(tenantID, roomID string) ([]*models.RoomMember, error) {
-	query := `
-		SELECT chatroom_id, tenant_id, user_id, role, joined_at
-		FROM room_members
-		WHERE tenant_id = ? AND chatroom_id = ?
-		ORDER BY joined_at
-	`
-
-	rows, err := s.db.Query(query, tenantID, roomID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get room members: %w", err)
-	}
-	defer rows.Close()
-
-	var members []*models.RoomMember
-	for rows.Next() {
-		var member models.RoomMember
-		err := rows.Scan(
-			&member.ChatroomID,
-			&member.TenantID,
-			&member.UserID,
-			&member.Role,
-			&member.JoinedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan member: %w", err)
-		}
-		members = append(members, &member)
-	}
-
-	return members, nil
+	return s.repo.GetMembers(tenantID, roomID)
 }
 
 // AddMember adds a single member to a room
 func (s *Service) AddMember(tenantID, roomID, userID string) error {
-	query := `
-		INSERT INTO room_members (chatroom_id, tenant_id, user_id, role)
-		VALUES (?, ?, ?, 'member')
-	`
-
-	_, err := s.db.Exec(query, roomID, tenantID, userID)
-	if err != nil {
-		return fmt.Errorf("failed to add member: %w", err)
+	if err := s.repo.AddMember(tenantID, roomID, userID); err != nil {
+		return err
 	}
-
 	slog.Info("Added member to room", "tenant_id", tenantID, "room_id", roomID, "user_id", userID)
 	return nil
 }
 
 // RemoveMember removes a member from a room
 func (s *Service) RemoveMember(tenantID, roomID, userID string) error {
-	query := `
-		DELETE FROM room_members
-		WHERE tenant_id = ? AND chatroom_id = ? AND user_id = ?
-	`
-
-	result, err := s.db.Exec(query, tenantID, roomID, userID)
-	if err != nil {
-		return fmt.Errorf("failed to remove member: %w", err)
+	if err := s.repo.RemoveMember(tenantID, roomID, userID); err != nil {
+		return err
 	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
-		return fmt.Errorf("member not found in room")
-	}
-
 	slog.Info("Removed member from room", "tenant_id", tenantID, "room_id", roomID, "user_id", userID)
 	return nil
 }
 
 // GetUserRooms returns all rooms that a user is a member of
 func (s *Service) GetUserRooms(tenantID, userID string) ([]*models.Room, error) {
-	query := `
-		SELECT r.room_id, r.tenant_id, r.type, r.unique_key, r.name, r.last_seq, r.metadata, r.created_at
-		FROM rooms r
-		JOIN room_members rm ON r.room_id = rm.chatroom_id AND r.tenant_id = rm.tenant_id
-		WHERE r.tenant_id = ? AND rm.user_id = ?
-		ORDER BY r.created_at DESC
-	`
-
-	rows, err := s.db.Query(query, tenantID, userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user rooms: %w", err)
-	}
-	defer rows.Close()
-
-	var rooms []*models.Room
-	for rows.Next() {
-		var room models.Room
-		var uniqueKey, name, metadata sql.NullString
-		err := rows.Scan(
-			&room.RoomID,
-			&room.TenantID,
-			&room.Type,
-			&uniqueKey,
-			&name,
-			&room.LastSeq,
-			&metadata,
-			&room.CreatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan room: %w", err)
-		}
-		room.UniqueKey = uniqueKey.String
-		room.Name = name.String
-		room.Metadata = metadata.String
-		rooms = append(rooms, &room)
-	}
-
-	return rooms, rows.Err()
+	return s.repo.GetUserRooms(tenantID, userID)
 }
 
 // UpdateRoom updates a room's name and/or metadata. Nil pointer fields are left unchanged.
 func (s *Service) UpdateRoom(tenantID, roomID string, req *models.UpdateRoomRequest) (*models.Room, error) {
-	var setParts []string
-	var args []interface{}
-
-	if req.Name != nil {
-		setParts = append(setParts, "name = ?")
-		args = append(args, *req.Name)
-	}
-	if req.Metadata != nil {
-		setParts = append(setParts, "metadata = ?")
-		args = append(args, *req.Metadata)
-	}
-	if len(setParts) == 0 {
+	if req.Name == nil && req.Metadata == nil {
 		return s.GetRoom(tenantID, roomID)
 	}
 
-	args = append(args, tenantID, roomID)
-	query := "UPDATE rooms SET " + strings.Join(setParts, ", ") + " WHERE tenant_id = ? AND room_id = ?"
-
-	result, err := s.db.Exec(query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update room: %w", err)
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return nil, fmt.Errorf("failed to check rows affected: %w", err)
-	}
-	if rows == 0 {
-		return nil, fmt.Errorf("room not found")
+	if err := s.repo.Update(tenantID, roomID, req); err != nil {
+		return nil, err
 	}
 
 	slog.Info("Updated room", "tenant_id", tenantID, "room_id", roomID)
