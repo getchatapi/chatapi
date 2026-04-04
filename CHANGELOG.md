@@ -9,33 +9,26 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Security
-- API keys are now stored as SHA-256 hashes in the database (`api_key_hash` column). Plaintext keys are returned exactly once at creation time and cannot be recovered. Tenants created with v0.1.0 must be re-created after upgrading.
-- Removed WebSocket `api_key` query parameter fallback — API keys must be supplied via the `X-API-Key` header only. Query parameters appear in server access logs.
-- Server now refuses to start if `MASTER_API_KEY` is unset (previously defaulted to empty string, making admin endpoints unprotected).
-- WebSocket origin checking is now enforced. Configure allowed origins via `ALLOWED_ORIGINS` (comma-separated). Use `*` for development only.
+### Changed — Breaking
+- **Auth**: API key authentication removed. All clients now authenticate with JWT Bearer tokens (`Authorization: Bearer <token>`). Your backend signs JWTs with `JWT_SECRET`; ChatAPI validates them. The `sub` claim is the user ID.
+- **Config**: `MASTER_API_KEY` removed. Set `JWT_SECRET` instead.
+- **Config**: `DEFAULT_RATE_LIMIT` removed.
+- **WebSocket**: Connect with `?token=<jwt>` instead of `?api_key=...`.
 
 ### Added
-- `GET /metrics` endpoint exposing operational counters: `active_connections`, `messages_sent`, `broadcast_drops`, `delivery_attempts`, `delivery_failures`, `uptime_seconds`.
-- `WS_MAX_CONNECTIONS_PER_USER` config option (default `5`). Connections beyond the limit receive a `1008 Policy Violation` close frame.
-- `ALLOWED_ORIGINS` config option for WebSocket origin validation.
+- **AI bots**: Register LLM-backed bots via `POST /bots`. Bots join rooms as first-class participants and auto-respond to inbound messages.
+- **LLM streaming**: Bot replies stream token-by-token over WebSocket as `message.stream.start`, `message.stream.delta`, and `message.stream.end` events. Works with OpenAI, Anthropic, Ollama, and any OpenAI-compatible endpoint.
+- **`POST /rooms/{id}/members`**: Add users or bots to an existing room.
+- **Bot CRUD**: `GET /bots`, `GET /bots/{id}`, `DELETE /bots/{id}`.
+- **Repository pattern**: All SQL extracted to `internal/repository/sqlite/`. Services depend on interfaces — swap SQLite for PostgreSQL by implementing the same interfaces in a new adapter with zero service changes.
+- **Broker interface**: `internal/broker/` decouples WebSocket broadcast from transport. Default `LocalBroker` uses an in-process channel. Implement `broker.Broker` backed by Redis pub/sub to enable horizontal scaling.
+- **TypeScript SDK**: Updated to JWT auth, added bot endpoints and streaming event types.
 
-### Fixed
-- Deadlock in `cleanupStalePresence`: calling `IsUserOnline` while holding the write lock caused a hang. Fixed by inlining the connection check.
-- `GET /health` incorrectly returned `503` on a fresh (empty) database due to a nil-vs-empty-slice check bug in `testDatabaseWrite`.
-- `go.mod` declared `go 1.21` but the code uses `net/http` features added in Go 1.22 (`r.PathValue`, method routing). Minimum version is now correctly declared as `go 1.22`.
-
-### Changed
-- Broadcast drop events are now logged at `ERROR` level (previously `WARN`) and include the message type and a running total counter.
-- `GET /metrics` and `GET /health` are public endpoints (no authentication required).
-
-### Migration notes (v0.1.0 → unreleased)
-
-**Breaking**: The `tenants.api_key` column has been renamed to `api_key_hash` and now stores a SHA-256 hash (migration `009_hash_api_keys.sql`). Any tenants created with v0.1.0 will no longer authenticate because the stored value is plaintext, not a hash. Re-create all tenants after upgrading.
-
-**Breaking**: WebSocket clients that relied on `?api_key=...` query parameter authentication must switch to the `X-API-Key` header.
-
-**Required**: `MASTER_API_KEY` must be set before starting the server. The server exits with an error if it is missing.
+### Removed
+- MCP server — REST API is sufficient for agent integration.
+- Oversight / HITL primitives (`request_approval`, `await_response`, room state machine) — deferred to a separate project.
+- Webhooks for offline delivery notification — removed in favour of simplicity.
+- `IssueWSToken` / `ConsumeWSToken` — dead code from the old API key auth flow.
 
 ---
 
@@ -50,4 +43,3 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - Per-room monotonic message sequencing.
 - Background delivery worker and WAL checkpoint worker.
 - Docker image and pre-built binaries for Linux, macOS, and Windows.
-- Hugo-based documentation site.

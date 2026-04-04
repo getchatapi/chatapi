@@ -2,31 +2,36 @@
 
 Instructions for Claude when working in this repository.
 
-## Before Making Architectural Decisions
+## Project Overview
 
-Read `VISION.md` for product positioning and `PLAN.md` for the current implementation plan.
-The two documents together define what we are building and why.
+ChatAPI is self-hosted, open source chat infrastructure for AI-powered apps. See `README.md` for positioning and `CONTRIBUTING.md` for what we will and won't merge.
 
 ## Project Structure
 
 ```
 internal/
-  models/         # Shared types only — no logic
-  db/             # Schema, migrations, db.New()
-  services/       # Business logic, one package per domain
-    chatroom/
-    message/
-    delivery/
-    realtime/
-    tenant/       # Being removed — see PLAN.md
-    notification/
-    webhook/
+  broker/           # Broker interface + LocalBroker (swap for Redis)
+  repository/
+    repository.go   # All repository interfaces
+    sqlite/         # SQLite implementations (room, message, delivery, notification, bot, tenant)
+  models/           # Shared types only — no logic
+  db/               # Schema, migrations, db.New()
+  services/         # Business logic, one package per domain
+    chatroom/       # Room + membership logic (depends on repository.RoomRepository)
+    message/        # Message storage + sequencing (depends on repository.MessageRepository)
+    delivery/       # Retry worker, offline queuing (depends on repository.DeliveryRepository)
+    realtime/       # WebSocket registry + broadcast (depends on broker.Broker)
+    bot/            # Bot registration + LLM triggering
+    notification/   # Durable notifications
+    tenant/         # Tenant management
+    webhook/        # Outbound webhook calls
   handlers/
-    rest/         # HTTP handlers
-    ws/           # WebSocket handler
-  transport/      # Server wiring, route registration
-  testutil/       # Test helpers (NewTestDB)
-  config/         # Config struct, env loading
+    rest/           # HTTP handlers
+    ws/             # WebSocket handler
+  transport/        # Server wiring, route registration
+  testutil/         # Test helpers (NewTestDB)
+  config/           # Config struct, env loading
+  auth/             # JWT validation
 ```
 
 ## Coding Conventions
@@ -35,7 +40,13 @@ internal/
 - Standard library first. Add a dependency only when the stdlib alternative is materially worse.
 - No ORMs. Raw `database/sql` throughout.
 - No panics in library code. Return errors; let the handler decide the HTTP status.
-- Interfaces only when there are multiple implementations or tests require it. None currently exist.
+- Interfaces exist at the repository layer (multiple DB adapters planned) and broker layer (Redis planned).
+
+### Repository Pattern
+- All SQL lives in `internal/repository/sqlite/`. Services never touch `*sql.DB` directly.
+- Services depend on repository interfaces from `internal/repository/repository.go`.
+- To add PostgreSQL: implement the same interfaces in `internal/repository/postgres/` — no service changes.
+- SQLite uses `?` placeholders. PostgreSQL will use `$1, $2`.
 
 ### Packages and naming
 - Constructor pattern: `NewService(deps...) *Service`
@@ -59,11 +70,11 @@ HTTP error responses are flat JSON:
 ### HTTP
 - Standard `net/http` ServeMux with `{path_param}` pattern syntax
 - JSON in, JSON out
-- Auth: JWT validation (see PLAN.md — API keys are being removed)
+- Auth: JWT Bearer token. `sub` claim = userID.
 
 ### Concurrency
 - `sync/atomic` for counters
-- Goroutines for async work (delivery, bot triggers, webhook calls)
+- Goroutines for async work (delivery, bot triggers)
 - Always pass `context.Context` for anything that should respect shutdown
 
 ### Database
@@ -77,12 +88,15 @@ HTTP error responses are flat JSON:
 - Package: `package foo_test` (black-box testing)
 - DB: always use `testutil.NewTestDB(t)` — named shared-cache in-memory SQLite, not `:memory:`
 - No mock databases. Integration tests against real SQLite.
+- Construct services via repositories: `chatroom.NewService(sqlite.NewRoomRepository(db.DB))`
 - Run all tests: `go test ./...`
 - Run one package: `go test -count=1 -timeout=30s ./internal/services/chatroom/`
 
 ## What We Don't Do
 
-- No horizontal scaling / Redis pub-sub / multi-instance coordination
+- No MCP server — REST API is sufficient for agent integration
+- No oversight/HITL primitives — deferred to a separate project
 - No hosted SaaS infrastructure in this repo
 - No visual builders or no-code tooling
 - No agent framework or LLM orchestration — ChatAPI is the communication layer, not the brain
+- No multi-tenancy — single workspace per deployment (`tenant_id = "default"` hardcoded)

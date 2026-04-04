@@ -1,57 +1,110 @@
 # ChatAPI
 
-A lightweight, multitenant chat service built in Go with SQLite, WebSocket support, and durable message delivery.
+Self-hosted, open source chat infrastructure for AI-powered apps.
 
-[![Documentation](https://img.shields.io/badge/docs-hugo-blue)](https://hastenr.github.io/chatapi/)
 [![Go Version](https://img.shields.io/badge/go-1.22+-blue)](https://golang.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/hastenr/chatapi)](https://github.com/hastenr/chatapi/releases)
-[![Docker Image Version (latest by date)](https://img.shields.io/docker/v/hastenr/chatapi)](https://hub.docker.com/r/hastenr/chatapi)
 
-## Deploy
+A single binary that gives your app real-time messaging, AI bot participants, and LLM streaming — without Sendbird's per-MAU pricing or handing your conversation data to a third party.
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/hastenr/chatapi)
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/hastenr/chatapi)
+---
 
-| Platform | Guide |
-|----------|-------|
-| **Docker Compose** | `cp .env.example .env && docker compose up -d` |
-| **Fly.io** | `fly launch` then `fly secrets set MASTER_API_KEY=...` |
-| **Railway** | Import repo, add a Volume at `/data`, set `MASTER_API_KEY` |
-| **Render** | Click the button above — `MASTER_API_KEY` is auto-generated |
-| **Binary** | See [Releases](https://github.com/hastenr/chatapi/releases) |
+## Why ChatAPI
 
-> All containerised deployments mount a persistent volume at `/data` for the SQLite database.
+| | ChatAPI | Stream / Sendbird | Roll your own |
+|---|---|---|---|
+| Self-hosted | ✓ | ✗ | ✓ |
+| AI bots native | ✓ | Add-on | You build it |
+| LLM streaming | ✓ | ✗ | You build it |
+| Open source | ✓ | ✗ | N/A |
+| Per-MAU pricing | Free | Expensive | Infra cost |
+
+---
 
 ## Features
 
-- **Multitenant**: API key-based tenancy with per-tenant rate limiting
-- **Real-time messaging**: WebSocket connections for instant delivery
-- **Durable delivery**: Store-then-send with at-least-once guarantees
-- **Message sequencing**: Per-room ordering with client acknowledgments
-- **Room metadata**: Attach arbitrary app-level context to rooms at creation time
-- **Offline webhooks**: POST to your backend when a message arrives for an offline user
-- **TypeScript SDK**: First-class client SDK — `npm install @hastenr/chatapi-sdk`
-- **SQLite backend**: WAL mode for concurrent reads/writes
+- **Real-time WebSocket messaging** — DM, group, and channel rooms
+- **AI bots as first-class participants** — add a bot to any room like a user
+- **LLM streaming** — token-by-token streaming over WebSocket (`message.stream.*`)
+- **Works with any LLM** — OpenAI, Anthropic, Ollama, or any OpenAI-compatible endpoint
+- **Durable delivery** — store-then-send with retry for offline users
+- **Presence and typing indicators** — built-in
+- **JWT auth** — your backend issues tokens, ChatAPI validates them
+- **TypeScript SDK** — `npm install @hastenr/chatapi-sdk`
+- **Portable by design** — repository interfaces let you swap SQLite for PostgreSQL; broker interface lets you swap in Redis for horizontal scaling
+
+---
 
 ## Quick Start
 
 ```bash
 git clone https://github.com/hastenr/chatapi.git
 cd chatapi
-go mod download
-MASTER_API_KEY=your-secret-key go run ./cmd/chatapi
+cp .env.example .env          # set JWT_SECRET
+go run ./cmd/chatapi
 ```
 
 ```bash
 curl http://localhost:8080/health
-# {"status":"ok","service":"chatapi","uptime":"5s","db_writable":true}
+# {"status":"ok","service":"chatapi","uptime":"2s","db_writable":true}
 ```
 
-## Documentation
+---
 
-📚 **[Full documentation](https://hastenr.github.io/chatapi/)** — API reference, configuration, guides, and architecture.
+## How It Works
+
+ChatAPI is chat infrastructure, not an AI framework. Your AI agent lives outside — ChatAPI is the real-time messaging layer between your agent and your users.
+
+```
+Your AI agent (any LLM / framework)
+        ↕  REST API
+    ChatAPI room
+        ↕  WebSocket
+      End user
+```
+
+**LLM bots (built-in)** — register a bot with a model config, add it to a room. ChatAPI calls the LLM, injects conversation history, and streams the reply. No code required for simple assistants.
+
+**External bots** — any service can join a room as a bot participant via JWT, just like a user. Your agent calls the REST API. You own the logic.
+
+---
+
+## Scalability
+
+ChatAPI runs on a single instance out of the box — SQLite, no external services, deploys on a $6 VPS.
+
+When you need more:
+- **PostgreSQL**: implement `repository.RoomRepository` (and others) with `$1` placeholders — zero service changes
+- **Horizontal scaling**: implement `broker.Broker` backed by Redis pub/sub — zero service changes
+
+The interfaces are defined. The SQLite implementations ship with the binary.
+
+---
+
+## Deploy
+
+| Platform | |
+|---|---|
+| Docker Compose | `cp .env.example .env && docker compose up -d` |
+| Fly.io | `fly launch` |
+| Railway | Import repo, add a Volume at `/data` |
+| Binary | See [Releases](https://github.com/hastenr/chatapi/releases) |
+
+> Mount a persistent volume at `/data` for the SQLite database.
+
+---
+
+## Configuration
+
+```env
+LISTEN_ADDR=:8080
+DATABASE_DSN=file:/data/chatapi.db?_journal_mode=WAL
+JWT_SECRET=your-secret-here
+ALLOWED_ORIGINS=https://yourapp.com
+```
+
+---
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE).
