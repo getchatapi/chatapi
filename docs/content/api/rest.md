@@ -5,44 +5,72 @@ weight: 21
 
 # REST API Reference
 
-The ChatAPI REST API provides HTTP endpoints for chat operations. All endpoints require authentication and return JSON responses.
-
 ## Authentication
 
-### Standard Endpoints
-
-Include these headers with every request:
+All endpoints except `GET /health` and `GET /metrics` require a JWT Bearer token:
 
 ```
-X-API-Key: your-tenant-api-key
-X-User-Id: user-identifier
+Authorization: Bearer <jwt>
 ```
 
-- **X-API-Key**: Identifies your tenant (organization). API keys are stored as SHA-256 hashes in the database; the plaintext key is returned only once at tenant creation and cannot be retrieved again.
-- **X-User-Id**: Identifies the user performing the action
+Your backend signs JWTs with `JWT_SECRET`. The `sub` claim is the user ID for the request.
 
-### Admin Endpoints
+Error responses use a flat JSON shape:
 
-Admin endpoints require master API key authentication:
-
-```
-X-Master-Key: your-master-api-key
+```json
+{"error": "not_found", "message": "room not found"}
 ```
 
-- **X-Master-Key**: Master key for administrative operations (set via `MASTER_API_KEY` env var)
-- Used for tenant creation and system administration
+Common status codes: `400` invalid request, `401` missing/invalid token, `403` forbidden, `404` not found, `500` server error.
+
+---
+
+## Health & Metrics
+
+### Health check
+
+```http
+GET /health
+```
+
+No authentication required. Returns `503` if the database is not writable.
+
+```json
+{"status": "ok", "db_writable": true}
+```
+
+### Server metrics
+
+```http
+GET /metrics
+```
+
+No authentication required. Live counters since server start.
+
+```json
+{
+  "active_connections": 42,
+  "messages_sent": 18340,
+  "broadcast_drops": 3,
+  "delivery_attempts": 21005,
+  "delivery_failures": 12,
+  "uptime_seconds": 86400
+}
+```
+
+---
 
 ## Rooms
 
-### List Rooms
+### List rooms
 
-List all rooms the authenticated user belongs to.
+Returns all rooms the authenticated user belongs to.
 
 ```http
 GET /rooms
+Authorization: Bearer <token>
 ```
 
-**Response:**
 ```json
 {
   "rooms": [
@@ -53,321 +81,279 @@ GET /rooms
       "name": null,
       "metadata": "{\"listing_id\":\"lst_99\"}",
       "last_seq": 42,
-      "created_at": "2025-12-13T12:00:00Z"
+      "created_at": "2026-04-02T12:00:00Z"
     }
   ]
 }
 ```
 
-**Status Codes:**
-- `200` - Success
-- `401` - Authentication failed
-
-### Create Room
-
-Create a new chat room (DM, group, or channel).
+### Create room
 
 ```http
 POST /rooms
+Authorization: Bearer <token>
+Content-Type: application/json
 ```
 
-**Request Body:**
 ```json
 {
-  "type": "dm" | "group" | "channel",
-  "members": ["user1", "user2"],
-  "name": "Optional room name",
-  "metadata": "{\"listing_id\":\"lst_99\",\"order_id\":\"ord_42\"}"
-}
-```
-
-The `metadata` field is an optional arbitrary JSON string. It is stored as-is and returned on every room object. Use it to attach app-level context (listing IDs, order IDs, etc.) that your application needs without storing it separately. It is also included in offline webhook payloads.
-
-**Response:**
-```json
-{
-  "room_id": "room_abc123",
   "type": "dm",
-  "unique_key": "dm:user1:user2",
-  "name": null,
-  "metadata": "{\"listing_id\":\"lst_99\",\"order_id\":\"ord_42\"}",
-  "last_seq": 0,
-  "created_at": "2025-12-13T12:00:00Z"
+  "members": ["alice", "bob"],
+  "name": "Optional name",
+  "metadata": "{\"order_id\":\"ord_42\"}"
 }
 ```
 
-**Status Codes:**
-- `201` - Room created successfully
-- `400` - Invalid request parameters
-- `401` - Authentication failed
-- `409` - Room already exists (for DMs)
+- `type`: `"dm"` | `"group"` | `"channel"` — required
+- `members`: array of user IDs — required
+- `name`: optional display name
+- `metadata`: optional arbitrary JSON string for app-level context (listing IDs, order IDs, etc.)
 
-### Get Room
+Returns `201` with the created room object. Returns `409` if a DM between those members already exists.
 
-Retrieve room information.
+### Get room
 
 ```http
 GET /rooms/{room_id}
+Authorization: Bearer <token>
 ```
 
-**Response:**
-```json
-{
-  "room_id": "room_abc123",
-  "type": "group",
-  "name": "Team Chat",
-  "metadata": null,
-  "last_seq": 42,
-  "created_at": "2025-12-13T12:00:00Z"
-}
-```
+Returns the room object. `403` if the user is not a member.
 
-### Update Room
-
-Update a room's name and/or metadata. Only the fields you include are changed — omitting a field leaves it unchanged.
+### Update room
 
 ```http
-PATCH /rooms/{room_id}
+PUT /rooms/{room_id}
+Authorization: Bearer <token>
+Content-Type: application/json
 ```
 
-**Request Body:**
 ```json
 {
-  "name": "New Room Name",
-  "metadata": "{\"listing_id\":\"lst_99\"}"
+  "name": "New name",
+  "metadata": "{\"order_id\":\"ord_99\"}"
 }
 ```
 
-Both fields are optional. Send only the ones you want to change.
+Both fields are optional. Omitting a field leaves it unchanged. Returns the updated room object.
 
-**Response:** Updated room object (same shape as Get Room).
+### Delete room
 
-**Status Codes:**
-- `200` - Room updated
-- `400` - Invalid request
-- `401` - Authentication failed
-- `404` - Room not found
+```http
+DELETE /rooms/{room_id}
+Authorization: Bearer <token>
+```
 
-### List Room Members
+Returns `204 No Content`.
 
-Get all members of a room.
+---
+
+## Members
+
+### List members
 
 ```http
 GET /rooms/{room_id}/members
+Authorization: Bearer <token>
 ```
 
-**Response:**
 ```json
 {
   "members": [
-    {
-      "user_id": "user1",
-      "role": "admin",
-      "joined_at": "2025-12-13T12:00:00Z"
-    },
-    {
-      "user_id": "user2",
-      "role": "member",
-      "joined_at": "2025-12-13T12:05:00Z"
-    }
+    {"user_id": "alice", "role": "member", "joined_at": "2026-04-02T12:00:00Z"},
+    {"user_id": "bob",   "role": "member", "joined_at": "2026-04-02T12:00:00Z"}
   ]
 }
 ```
 
-## Messages
-
-### Send Message
-
-Send a message to a room.
+### Add member
 
 ```http
-POST /rooms/{room_id}/messages
+POST /rooms/{room_id}/members
+Authorization: Bearer <token>
+Content-Type: application/json
 ```
 
-**Request Body:**
 ```json
-{
-  "content": "Hello, world!",
-  "meta": "{\"type\":\"text\",\"mentions\":[\"user2\"]}"
-}
+{"user_id": "charlie"}
 ```
 
-The `meta` field is an optional arbitrary JSON string that is stored with the message and returned when reading messages. Use it for client-defined message metadata such as type hints, mention lists, or reaction data.
+Returns `201` on success.
 
-**Response:**
-```json
-{
-  "message_id": "msg_abc123",
-  "seq": 43,
-  "created_at": "2025-12-13T12:10:00Z"
-}
+### Remove member
+
+```http
+DELETE /rooms/{room_id}/members/{user_id}
+Authorization: Bearer <token>
 ```
 
-### Get Messages
+Returns `204 No Content`.
 
-Retrieve messages from a room.
+---
+
+## Messages
+
+### Get messages
 
 ```http
 GET /rooms/{room_id}/messages?after_seq=40&limit=50
+Authorization: Bearer <token>
 ```
 
-**Query Parameters:**
-- `after_seq` (optional): Get messages after this sequence number
-- `limit` (optional): Maximum messages to return (default: 50, max: 100)
+Query parameters:
+- `after_seq` — return messages with `seq > after_seq` (optional, default 0)
+- `limit` — max messages to return (optional, default 50, max 100)
 
-**Response:**
 ```json
 {
   "messages": [
     {
       "message_id": "msg_abc123",
-      "sender_id": "user1",
+      "sender_id": "alice",
       "seq": 41,
-      "content": "Hello, world!",
-      "meta": "{\"type\":\"text\",\"mentions\":[\"user2\"]}",
-      "created_at": "2025-12-13T12:10:00Z"
+      "content": "Hello!",
+      "meta": null,
+      "created_at": "2026-04-02T12:10:00Z"
     }
   ]
 }
 ```
 
-### Delete Message
-
-Permanently delete a message. Only the original sender may delete their own messages. All room members receive a `message.deleted` WebSocket event.
+### Send message
 
 ```http
-DELETE /rooms/{room_id}/messages/{message_id}
+POST /rooms/{room_id}/messages
+Authorization: Bearer <token>
+Content-Type: application/json
 ```
 
-**Response:** `204 No Content`
+```json
+{
+  "content": "Hello!",
+  "meta": "{\"mentions\":[\"bob\"]}"
+}
+```
 
-**Status Codes:**
-- `204` - Deleted
-- `401` - Authentication failed
-- `403` - Not the original sender
-- `404` - Message not found
+- `content`: message text — required
+- `meta`: optional arbitrary JSON string (client-defined metadata, mentions, reactions, etc.)
 
-### Edit Message
+```json
+{"message_id": "msg_abc123", "seq": 43, "created_at": "2026-04-02T12:10:00Z"}
+```
 
-Update the content of a message. Only the original sender may edit their own messages. All room members receive a `message.edited` WebSocket event.
+### Edit message
+
+Only the original sender may edit a message.
 
 ```http
 PUT /rooms/{room_id}/messages/{message_id}
+Authorization: Bearer <token>
+Content-Type: application/json
 ```
 
-**Request Body:**
 ```json
-{
-  "content": "Updated message content"
-}
+{"content": "Updated content"}
 ```
 
-**Response:** Updated message object (same shape as in Get Messages).
+Returns the updated message object. `403` if not the sender.
 
-**Status Codes:**
-- `200` - Message updated
-- `400` - Missing or empty content
-- `401` - Authentication failed
-- `403` - Not the original sender
-- `404` - Message not found
+### Delete message
 
-## Delivery & Acknowledgments
+Only the original sender may delete a message.
 
-### Acknowledge Messages
+```http
+DELETE /rooms/{room_id}/messages/{message_id}
+Authorization: Bearer <token>
+```
 
-Mark messages as delivered up to a specific sequence number.
+Returns `204 No Content`. `403` if not the sender.
+
+---
+
+## Acknowledgments
+
+Mark messages as delivered up to a given sequence number.
 
 ```http
 POST /acks
+Authorization: Bearer <token>
+Content-Type: application/json
 ```
 
-**Request Body:**
 ```json
-{
-  "room_id": "room_abc123",
-  "seq": 43
-}
+{"room_id": "room_abc123", "seq": 43}
 ```
 
-**Response:** `200 OK` with no body.
+Returns `200 OK`.
+
+---
 
 ## Notifications
 
-### Send Notification
-
-Send a notification to users or room members.
+### Send notification
 
 ```http
 POST /notify
+Authorization: Bearer <token>
+Content-Type: application/json
 ```
 
-**Request Body:**
 ```json
 {
   "topic": "order.shipped",
-  "payload": {
-    "order_id": "12345",
-    "tracking_number": "1Z999AA1234567890"
-  },
+  "payload": {"order_id": "12345", "tracking": "1Z999AA..."},
   "targets": {
-    "user_ids": ["user1", "user2"],
+    "user_ids": ["alice", "bob"],
     "room_id": "room_abc123",
     "topic_subscribers": true
   }
 }
 ```
 
-**Response:**
+`targets` controls who receives the notification. All target fields are optional and can be combined. If `targets` is omitted, the notification is broadcast to all online users.
+
 ```json
-{
-  "notification_id": "notif_abc123",
-  "created_at": "2025-12-13T12:15:00Z"
-}
+{"notification_id": "notif_abc123", "created_at": "2026-04-02T12:15:00Z"}
 ```
+
+---
 
 ## Notification Subscriptions
 
-Users subscribe to topics to receive notifications sent with `"topic_subscribers": true`.
-
-### Subscribe to a Topic
+### Subscribe to a topic
 
 ```http
 POST /subscriptions
+Authorization: Bearer <token>
+Content-Type: application/json
 ```
 
-**Request Body:**
 ```json
-{
-  "topic": "order.shipped"
-}
+{"topic": "order.shipped"}
 ```
 
-**Response (`201`):**
+Returns `201`:
+
 ```json
 {
   "id": 1,
-  "subscriber_id": "user1",
+  "subscriber_id": "alice",
   "topic": "order.shipped",
-  "created_at": "2025-12-13T12:00:00Z"
+  "created_at": "2026-04-02T12:00:00Z"
 }
 ```
 
-### List Subscriptions
+### List subscriptions
 
 ```http
 GET /subscriptions
+Authorization: Bearer <token>
 ```
 
-**Response:**
 ```json
 {
   "subscriptions": [
-    {
-      "id": 1,
-      "subscriber_id": "user1",
-      "topic": "order.shipped",
-      "created_at": "2025-12-13T12:00:00Z"
-    }
+    {"id": 1, "subscriber_id": "alice", "topic": "order.shipped", "created_at": "2026-04-02T12:00:00Z"}
   ]
 }
 ```
@@ -376,323 +362,74 @@ GET /subscriptions
 
 ```http
 DELETE /subscriptions/{id}
+Authorization: Bearer <token>
 ```
 
-**Response:** `204 No Content`
+Returns `204 No Content`.
 
-## WebSocket Tokens
+---
 
-### Issue WebSocket Token
+## Bots
 
-Issue a short-lived, single-use authentication token for browser WebSocket connections. Browser clients cannot set custom HTTP headers on WebSocket connections, so this token-based flow is required.
+### Register a bot
 
 ```http
-POST /ws/token
+POST /bots
+Authorization: Bearer <token>
+Content-Type: application/json
 ```
 
-**Authentication:** Standard `X-API-Key` + `X-User-Id` headers.
-
-**Response:**
 ```json
 {
-  "token": "wst_a1b2c3d4e5f6...",
-  "expires_in": 60
+  "name": "Support Bot",
+  "mode": "llm",
+  "provider": "openai",
+  "base_url": "https://api.openai.com/v1",
+  "model": "gpt-4o",
+  "api_key": "sk-...",
+  "system_prompt": "You are a helpful support agent.",
+  "max_context": 20
 }
 ```
 
-After obtaining a token, connect to the WebSocket endpoint:
+Fields:
+- `name`: display name — required
+- `mode`: `"llm"` (ChatAPI calls the LLM) or `"external"` (bot connects via JWT like any user) — required
+- `provider`: `"openai"` or `"anthropic"` — required for `llm` mode
+- `base_url`: optional override for OpenAI-compatible endpoints (Ollama, Groq, LM Studio, etc.)
+- `model`: model ID (e.g. `"gpt-4o"`, `"claude-3-5-sonnet-20241022"`)
+- `api_key`: LLM provider API key
+- `system_prompt`: system message prepended to every LLM request
+- `max_context`: number of recent messages to include as context (default 20)
 
-```
-wss://your-chatapi.com/ws?token=wst_a1b2c3d4e5f6...
-```
+Returns `201` with the created bot object (without `api_key`).
 
-The token is valid for **60 seconds** and is consumed on first use. If the connection attempt fails, request a new token before retrying.
-
-**Status Codes:**
-- `200` - Token issued successfully
-- `401` - Invalid API key or user ID
-
-## Health & Monitoring
-
-### Health Check
-
-Check service health and status.
+### List bots
 
 ```http
-GET /health
+GET /bots
+Authorization: Bearer <token>
 ```
 
-**Response:**
-```json
-{
-  "status": "ok",
-  "service": "chatapi",
-  "uptime": "2h30m45s",
-  "db_writable": true
-}
-```
-
-Returns `503 Service Unavailable` with `"status": "error"` if the database is not writable.
-
-### Server Metrics
-
-Returns live server counters. No authentication required.
+### Get bot
 
 ```http
-GET /metrics
+GET /bots/{bot_id}
+Authorization: Bearer <token>
 ```
 
-**Response:**
-```json
-{
-  "active_connections": 42,
-  "messages_sent": 18340,
-  "delivery_attempts": 21005,
-  "delivery_failures": 12,
-  "broadcast_drops": 3,
-  "uptime_seconds": 86400
-}
-```
-
-**Fields:**
-- `active_connections` — currently open WebSocket connections
-- `messages_sent` — total messages sent since server start
-- `delivery_attempts` — total background delivery attempts
-- `delivery_failures` — deliveries that failed permanently (see dead-letter queue)
-- `broadcast_drops` — broadcasts dropped due to a full send buffer (slow consumer)
-- `uptime_seconds` — server uptime in seconds
-
-## Admin Endpoints
-
-### Create Tenant
-
-Create a new tenant with an auto-generated API key. Requires `X-Master-Key` authentication (not `X-API-Key`).
+### Delete bot
 
 ```http
-POST /admin/tenants
+DELETE /bots/{bot_id}
+Authorization: Bearer <token>
 ```
 
-**Authentication:**
-```
-X-Master-Key: your-master-api-key
-```
+Returns `204 No Content`.
 
-**Request Body:**
-```json
-{
-  "name": "MyCompany"
-}
-```
+---
 
-**Response:**
-```json
-{
-  "tenant_id": "tenant_abc123",
-  "name": "MyCompany",
-  "api_key": "sk_abc123def456ghi789jkl012mno345pqr678stu901vwx",
-  "created_at": "2025-12-13T12:00:00Z"
-}
-```
+## Content types and formats
 
-**Status Codes:**
-- `201` - Tenant created successfully
-- `400` - Invalid request parameters
-- `401` - Invalid master API key
-- `500` - Server error
-
-**Security Note:** The `api_key` is returned **only in this response**. It is stored as a SHA-256 hash in the database — the plaintext can never be retrieved again. Copy it immediately and store it securely (e.g. in a secrets manager).
-
-### Dead Letters
-
-View failed message and notification deliveries for the authenticated tenant.
-
-```http
-GET /admin/dead-letters?limit=100
-```
-
-**Authentication:** Standard `X-API-Key` header. The tenant is determined from the API key.
-
-**Query Parameters:**
-- `limit` (optional): Maximum results (default: 100, max: 1000)
-
-**Response:**
-```json
-{
-  "failed_messages": [
-    {
-      "message_id": "msg_abc123",
-      "user_id": "user1",
-      "room_id": "room_abc123",
-      "attempts": 5,
-      "last_attempt_at": "2025-12-13T12:20:00Z",
-      "error": "connection timeout"
-    }
-  ],
-  "failed_notifications": [
-    {
-      "notification_id": "notif_abc123",
-      "topic": "order.shipped",
-      "attempts": 3,
-      "last_attempt_at": "2025-12-13T12:25:00Z",
-      "error": "user offline"
-    }
-  ]
-}
-```
-
-## Error Responses
-
-All error responses use this JSON shape:
-
-```json
-{
-  "error": "error_code",
-  "message": "Human-readable description"
-}
-```
-
-Common error codes:
-
-| Code | HTTP Status | Meaning |
-|---|---|---|
-| `unauthorized` | 401 | Missing or invalid `X-API-Key` |
-| `invalid_request` | 400 | Validation failed (missing field, bad JSON, etc.) |
-| `not_found` | 404 | Resource does not exist |
-| `forbidden` | 403 | Action not permitted for this user |
-| `rate_limit_exceeded` | 429 | Per-tenant rate limit hit |
-| `internal_error` | 500 | Unexpected server error |
-
-**Example:**
-```json
-{
-  "error": "not_found",
-  "message": "Room not found"
-}
-```
-
-## Rate Limiting
-
-ChatAPI implements per-tenant rate limiting:
-
-- **Default Limit**: 100 requests per second per tenant (configurable via `DEFAULT_RATE_LIMIT`)
-- **429 Status**: Returned when the limit is exceeded
-- **`Retry-After: 60`** response header is set on 429 responses
-
-## Content Types
-
-- **Request Body**: `application/json`
-- **Response Body**: `application/json`
-- **Character Encoding**: UTF-8
-
-## Time Formats
-
-All timestamps use ISO 8601 format:
-
-```
-2025-12-13T12:00:00Z
-2025-12-13T12:00:00.123456Z
-```
-
-## Pagination
-
-Endpoints that return lists support pagination:
-
-- `limit`: Maximum items per page (default: 50, max: 100)
-- `offset`: Number of items to skip (default: 0)
-
-## Versioning
-
-API versioning is handled via URL paths:
-
-- Current version: No prefix (v1 implied)
-- Future versions: `/v2/`, `/v3/`, etc.
-
-## SDK Examples
-
-### JavaScript (Fetch API)
-
-```javascript
-const API_KEY = 'your-api-key';
-const USER_ID = 'user123';
-
-async function sendMessage(roomId, content) {
-  const response = await fetch(`/rooms/${roomId}/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-API-Key': API_KEY,
-      'X-User-Id': USER_ID
-    },
-    body: JSON.stringify({ content })
-  });
-
-  return response.json();
-}
-```
-
-### Python (requests)
-
-```python
-import requests
-
-API_KEY = 'your-api-key'
-USER_ID = 'user123'
-BASE_URL = 'https://your-chatapi.com'
-
-def send_message(room_id, content):
-    headers = {
-        'Content-Type': 'application/json',
-        'X-API-Key': API_KEY,
-        'X-User-Id': USER_ID
-    }
-
-    data = {'content': content}
-
-    response = requests.post(
-        f'{BASE_URL}/rooms/{room_id}/messages',
-        json=data,
-        headers=headers
-    )
-
-    return response.json()
-```
-
-### Go (net/http)
-
-```go
-package main
-
-import (
-    "bytes"
-    "encoding/json"
-    "net/http"
-)
-
-const (
-    apiKey  = "your-api-key"
-    userID  = "user123"
-    baseURL = "https://your-chatapi.com"
-)
-
-func sendMessage(roomID, content string) error {
-    data := map[string]string{"content": content}
-    jsonData, _ := json.Marshal(data)
-
-    req, _ := http.NewRequest("POST",
-        baseURL+"/rooms/"+roomID+"/messages",
-        bytes.NewBuffer(jsonData))
-
-    req.Header.Set("Content-Type", "application/json")
-    req.Header.Set("X-API-Key", apiKey)
-    req.Header.Set("X-User-Id", userID)
-
-    client := &http.Client{}
-    resp, err := client.Do(req)
-    if err != nil {
-        return err
-    }
-    defer resp.Body.Close()
-
-    return nil
-}
-```
+- All request bodies: `application/json` (UTF-8)
+- All timestamps: ISO 8601 (`2026-04-02T12:00:00Z`)

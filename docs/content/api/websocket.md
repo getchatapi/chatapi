@@ -5,158 +5,175 @@ weight: 22
 
 # WebSocket API Reference
 
-The ChatAPI WebSocket API enables real-time, bidirectional communication for instant messaging and presence updates.
-
 ## Connection
-
-### Endpoint
 
 ```
 ws://your-chatapi-instance.com/ws
-wss://your-chatapi-instance.com/ws  # for HTTPS
+wss://your-chatapi-instance.com/ws
 ```
 
-### Authentication
+## Authentication
 
-WebSocket authentication depends on the type of client:
+### Browser clients
 
-#### Server / Node.js clients
-
-Server-side clients can set custom HTTP headers during the WebSocket handshake. Pass credentials via headers:
-
-```
-X-API-Key: your-tenant-api-key
-X-User-Id: user-identifier
-```
-
-Alternatively, `user_id` can be passed as a query parameter alongside the `X-API-Key` header:
-
-```
-/ws?user_id=user-identifier
-```
-
-#### Browser clients
-
-Browsers do not allow setting custom headers on WebSocket connections. Use the token-based flow instead:
-
-**Step 1 — Fetch a token** via `POST /ws/token` (standard REST call with `X-API-Key` + `X-User-Id` headers):
+Browsers cannot set custom headers on WebSocket connections. Pass the JWT as a query parameter:
 
 ```javascript
-const resp = await fetch('/ws/token', {
-  method: 'POST',
-  headers: {
-    'X-API-Key': apiKey,
-    'X-User-Id': userId
-  }
+const ws = new WebSocket(`wss://your-chatapi.com/ws?token=${jwt}`);
+```
+
+### Server-side clients
+
+Server clients can set the `Authorization` header during the WebSocket handshake:
+
+```
+Authorization: Bearer <jwt>
+```
+
+Example (Node.js):
+
+```javascript
+const WebSocket = require("ws");
+const ws = new WebSocket("wss://your-chatapi.com/ws", {
+  headers: { Authorization: "Bearer <jwt>" },
 });
-const { token } = await resp.json();
 ```
 
-**Step 2 — Connect using the token** as a query parameter:
+### Connection lifecycle
 
-```javascript
-const ws = new WebSocket(`wss://your-chatapi.com/ws?token=${token}`);
+1. Client connects with a JWT.
+2. Server validates the token and registers the connection.
+3. Server broadcasts `presence.update` (online) to rooms the user belongs to.
+4. Client fetches missed messages via `GET /rooms/{id}/messages?after_seq=<last_seen>` for each room.
+5. On disconnect, the server waits a grace period, then broadcasts `presence.update` (offline).
+
+### Missed messages
+
+The server does not replay missed messages on reconnect. After reconnecting, poll each room for messages since your last known sequence number:
+
+```http
+GET /rooms/{room_id}/messages?after_seq=<last_seen_seq>
+Authorization: Bearer <token>
 ```
 
-Tokens are **single-use** and expire after **60 seconds**. If the connection attempt fails, request a new token before retrying.
+---
 
-> **Security note**: The `?api_key=` query parameter auth method was removed as a security fix — API keys passed in query parameters appear in server logs and proxy access logs. Do not attempt to authenticate using `?api_key=`.
+## Message format
 
-### Connection Lifecycle
+All frames are JSON objects with a `type` field.
 
-1. **Connect**: Client establishes WebSocket connection
-2. **Authenticate**: Server validates credentials (header or token)
-3. **Register**: Connection registered for real-time events
-4. **Communicate**: Bidirectional message exchange begins
-5. **Disconnect**: Clean connection termination
+---
 
-## Message Protocol
+## Client → Server messages
 
-All WebSocket messages use JSON format:
-
-```json
-{
-  "type": "message_type",
-  "data": { ... }
-}
-```
-
-## Client → Server Messages
-
-### Send Message
+### send_message
 
 Send a message to a room.
 
 ```json
 {
   "type": "send_message",
-  "room_id": "room_abc123",
-  "content": "Hello, world!",
-  "meta": "{\"type\":\"text\",\"mentions\":[\"user2\"]}"
+  "data": {
+    "room_id": "room_abc123",
+    "content": "Hello!",
+    "meta": "{\"mentions\":[\"bob\"]}"
+  }
 }
 ```
 
-### Acknowledge Messages
+`meta` is optional.
 
-Mark messages as delivered.
+### ack
+
+Acknowledge all messages up to and including `seq`.
 
 ```json
 {
   "type": "ack",
-  "room_id": "room_abc123",
-  "seq": 43
+  "data": {
+    "room_id": "room_abc123",
+    "seq": 43
+  }
 }
 ```
 
-### Typing Indicators
-
-Send typing start/stop events.
+### typing.start / typing.stop
 
 ```json
-{
-  "type": "typing.start",
-  "room_id": "room_abc123"
-}
+{"type": "typing.start", "data": {"room_id": "room_abc123"}}
+{"type": "typing.stop",  "data": {"room_id": "room_abc123"}}
 ```
+
+### ping
+
+Keep-alive.
 
 ```json
-{
-  "type": "typing.stop",
-  "room_id": "room_abc123"
-}
+{"type": "ping"}
 ```
 
-### Subscribe to Room
+---
 
-Explicitly subscribe to room events (optional - automatic for room members).
+## Server → Client events
 
-```json
-{
-  "type": "subscribe",
-  "room_id": "room_abc123"
-}
-```
+### message
 
-## Server → Client Messages
-
-### Message Delivery
-
-New messages in subscribed rooms.
+A new message was sent in a room the user belongs to.
 
 ```json
 {
   "type": "message",
   "room_id": "room_abc123",
-  "message_id": "msg_def456",
   "seq": 44,
-  "sender_id": "user1",
-  "content": "Hello, world!",
-  "meta": "{\"type\":\"text\",\"mentions\":[\"user2\"]}",
-  "created_at": "2025-12-13T12:10:00Z"
+  "message_id": "msg_def456",
+  "sender_id": "alice",
+  "content": "Hello!",
+  "meta": null,
+  "created_at": "2026-04-02T12:10:00Z"
 }
 ```
 
-### Acknowledgment Received
+### message.stream.start
+
+An LLM bot has begun streaming a response.
+
+```json
+{
+  "type": "message.stream.start",
+  "room_id": "room_abc123",
+  "message_id": "msg_stream_789",
+  "sender_id": "bot_support"
+}
+```
+
+### message.stream.delta
+
+A token chunk from a streaming LLM response.
+
+```json
+{
+  "type": "message.stream.delta",
+  "room_id": "room_abc123",
+  "message_id": "msg_stream_789",
+  "delta": "Hello, how can I "
+}
+```
+
+### message.stream.end
+
+Streaming complete. The full content is included and the message has been persisted with its sequence number.
+
+```json
+{
+  "type": "message.stream.end",
+  "room_id": "room_abc123",
+  "message_id": "msg_stream_789",
+  "content": "Hello, how can I help you today?",
+  "seq": 45
+}
+```
+
+### ack.received
 
 Confirmation that an ACK was processed.
 
@@ -165,104 +182,42 @@ Confirmation that an ACK was processed.
   "type": "ack.received",
   "room_id": "room_abc123",
   "seq": 43,
-  "user_id": "user2"
+  "user_id": "alice"
 }
 ```
 
-### Presence Updates
+### presence.update
 
-User online/offline status changes.
+A user's connection status changed.
 
 ```json
 {
   "type": "presence.update",
-  "user_id": "user2",
+  "user_id": "bob",
   "status": "online"
 }
 ```
 
-```json
-{
-  "type": "presence.update",
-  "user_id": "user2",
-  "status": "offline"
-}
-```
+`status` is `"online"` or `"offline"`.
 
-### Typing Indicators
+### typing
 
-Other users' typing status.
+Another user started or stopped typing.
 
 ```json
 {
   "type": "typing",
   "room_id": "room_abc123",
-  "user_id": "user2",
+  "user_id": "bob",
   "action": "start"
 }
 ```
 
-```json
-{
-  "type": "typing",
-  "room_id": "room_abc123",
-  "user_id": "user2",
-  "action": "stop"
-}
-```
+`action` is `"start"` or `"stop"`.
 
-### Notifications
+### server.shutdown
 
-Real-time notification delivery. Received when your user is a target of a `POST /notify` call — either by explicit `user_ids`, as a member of the target `room_id`, as a subscriber to the topic (via `topic_subscribers: true`), or as a fallback broadcast when no targets are specified.
-
-```json
-{
-  "type": "notification",
-  "notification_id": "notif_ghi789",
-  "topic": "order.shipped",
-  "payload": "{\"order_id\":\"12345\",\"tracking_number\":\"1Z999AA1234567890\"}",
-  "timestamp": 1734091800
-}
-```
-
-Subscribe to a topic to receive targeted notifications:
-
-```bash
-POST /subscriptions
-{ "topic": "order.shipped" }
-```
-
-### Message Deleted
-
-Sent when a message is deleted via `DELETE /rooms/{room_id}/messages/{message_id}`. Clients should remove the message from their local state.
-
-```json
-{
-  "type": "message.deleted",
-  "room_id": "room_abc123",
-  "message_id": "msg_def456",
-  "seq": 44
-}
-```
-
-### Message Edited
-
-Sent when a message is edited via `PUT /rooms/{room_id}/messages/{message_id}`. Clients should update their local copy of the message.
-
-```json
-{
-  "type": "message.edited",
-  "room_id": "room_abc123",
-  "message_id": "msg_def456",
-  "seq": 44,
-  "sender_id": "user1",
-  "content": "Updated message content"
-}
-```
-
-### Server Shutdown
-
-Graceful shutdown notification.
+Graceful shutdown notice. Reconnect after the indicated delay.
 
 ```json
 {
@@ -271,483 +226,36 @@ Graceful shutdown notification.
 }
 ```
 
-## Connection Behavior
+---
 
-### On Connect
+## Reconnection
 
-1. **Validation**: Server validates credentials (API key + user ID, or token)
-2. **Registration**: Connection registered for the user
-3. **Presence Broadcast**: Online status sent to room members
-4. **Subscription**: Automatic subscription to user's rooms
-
-> **Missed messages**: The server does not automatically stream missed messages on reconnect. After reconnecting, fetch missed messages via `GET /rooms/{room_id}/messages?after_seq=<last_seen_seq>` for each room.
-
-### On Disconnect
-
-1. **Grace Period**: Server waits 5 seconds before broadcasting offline status (allows transparent reconnects)
-2. **Presence Update**: Offline status broadcast to room members after grace period
-3. **Stale Cleanup**: Presence entries older than 5 minutes are cleaned up by the background worker
-4. **Cleanup**: Connection removed from active connections
-5. **Persistence**: User state (last ack, delivery state) maintained for reconnection
-
-### Reconnection
-
-Clients should implement exponential backoff reconnection.
-
-**Node.js / server clients:**
+Implement exponential backoff. For browser clients, the JWT is passed as a query param and is valid for the token's `exp` claim, so refresh it if needed before reconnecting.
 
 ```javascript
-let reconnectDelay = 1000;
+let delay = 1000;
 
 function connect() {
-  const ws = new WebSocket('ws://your-chatapi.com/ws', [], {
-    headers: {
-      'X-API-Key': apiKey,
-      'X-User-Id': userId
-    }
-  });
+  const ws = new WebSocket(`wss://your-chatapi.com/ws?token=${getJWT()}`);
+
+  ws.onopen = () => { delay = 1000; };
 
   ws.onclose = () => {
-    setTimeout(connect, reconnectDelay);
-    reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+    setTimeout(connect, delay);
+    delay = Math.min(delay * 2, 30000);
   };
 
-  ws.onopen = () => {
-    reconnectDelay = 1000;
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.type === "server.shutdown") {
+      setTimeout(connect, msg.reconnect_after_ms);
+    }
   };
 }
+
+connect();
 ```
 
-**Browser clients** must refresh the token before each reconnect attempt:
+## Connection limits
 
-```javascript
-let reconnectDelay = 1000;
-
-async function getToken() {
-  const resp = await fetch('/ws/token', {
-    method: 'POST',
-    headers: { 'X-API-Key': apiKey, 'X-User-Id': userId }
-  });
-  const { token } = await resp.json();
-  return token;
-}
-
-async function connect() {
-  const token = await getToken();
-  const ws = new WebSocket(`wss://your-chatapi.com/ws?token=${token}`);
-
-  ws.onclose = () => {
-    setTimeout(connect, reconnectDelay);
-    reconnectDelay = Math.min(reconnectDelay * 2, 30000);
-  };
-
-  ws.onopen = () => {
-    reconnectDelay = 1000;
-  };
-}
-```
-
-## Message Ordering
-
-Messages are delivered in strict sequence order per room:
-
-- **Sequence Numbers**: Each message has a unique `seq` number
-- **Guaranteed Order**: Messages delivered in `seq` order
-- **No Gaps**: Clients may receive messages with non-consecutive seq numbers
-- **ACKs**: Clients acknowledge the highest contiguous seq number received
-
-## Error Handling
-
-### Connection Errors
-
-- **Invalid Credentials**: Connection closed immediately
-- **Rate Limiting**: Connection temporarily suspended
-- **Server Errors**: Connection closed with error message
-
-### Message Errors
-
-Invalid messages result in error responses:
-
-```json
-{
-  "type": "error",
-  "code": "VALIDATION_ERROR",
-  "message": "Invalid message format",
-  "request_id": "req_123"
-}
-```
-
-## Heartbeat/Ping
-
-WebSocket connections include automatic ping/pong:
-
-- **Ping Interval**: 30 seconds
-- **Timeout**: 60 seconds of inactivity
-- **Automatic**: Handled by WebSocket protocol
-
-## Client Implementation Examples
-
-### JavaScript (Browser — token flow)
-
-```javascript
-class ChatAPIClient {
-  constructor(apiKey, userId, baseUrl = 'https://your-chatapi.com') {
-    this.apiKey = apiKey;
-    this.userId = userId;
-    this.baseUrl = baseUrl;
-    this.ws = null;
-    this.reconnectDelay = 1000;
-  }
-
-  async fetchToken() {
-    const resp = await fetch(`${this.baseUrl}/ws/token`, {
-      method: 'POST',
-      headers: {
-        'X-API-Key': this.apiKey,
-        'X-User-Id': this.userId
-      }
-    });
-    if (!resp.ok) throw new Error('Failed to fetch WS token');
-    const { token } = await resp.json();
-    return token;
-  }
-
-  async connect() {
-    const token = await this.fetchToken();
-    const wsUrl = this.baseUrl.replace(/^http/, 'ws');
-    this.ws = new WebSocket(`${wsUrl}/ws?token=${token}`);
-
-    this.ws.onopen = () => {
-      console.log('Connected to ChatAPI');
-      this.reconnectDelay = 1000;
-    };
-
-    this.ws.onmessage = (event) => {
-      const message = JSON.parse(event.data);
-      this.handleMessage(message);
-    };
-
-    this.ws.onclose = () => {
-      console.log('Disconnected, reconnecting...');
-      setTimeout(() => this.connect(), this.reconnectDelay);
-      this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000);
-    };
-
-    this.ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
-  }
-
-  sendMessage(roomId, content) {
-    this.send({
-      type: 'send_message',
-      room_id: roomId,
-      content: content
-    });
-  }
-
-  acknowledge(roomId, seq) {
-    this.send({
-      type: 'ack',
-      room_id: roomId,
-      seq: seq
-    });
-  }
-
-  send(data) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(data));
-    }
-  }
-
-  handleMessage(message) {
-    switch (message.type) {
-      case 'message':
-        console.log('New message:', message);
-        break;
-      case 'presence.update':
-        console.log('Presence update:', message);
-        break;
-      case 'server.shutdown':
-        console.log('Server shutting down, reconnecting in', message.reconnect_after_ms, 'ms');
-        setTimeout(() => this.connect(), message.reconnect_after_ms);
-        break;
-    }
-  }
-}
-
-// Usage
-const client = new ChatAPIClient('your-api-key', 'user123');
-client.connect();
-```
-
-### Python (websockets library — server client)
-
-```python
-import asyncio
-import json
-import websockets
-from websockets.exceptions import ConnectionClosedError
-
-class ChatAPIClient:
-    def __init__(self, api_key, user_id, url="ws://localhost:8080/ws"):
-        self.api_key = api_key
-        self.user_id = user_id
-        self.url = url
-        self.websocket = None
-        self.reconnect_delay = 1.0
-
-    async def connect(self):
-        headers = {
-            "X-API-Key": self.api_key,
-            "X-User-Id": self.user_id
-        }
-
-        try:
-            self.websocket = await websockets.connect(
-                self.url,
-                extra_headers=headers
-            )
-            print("Connected to ChatAPI")
-            self.reconnect_delay = 1.0
-
-            asyncio.create_task(self.handle_messages())
-
-        except Exception as e:
-            print(f"Connection failed: {e}")
-            await self.reconnect()
-
-    async def reconnect(self):
-        await asyncio.sleep(self.reconnect_delay)
-        self.reconnect_delay = min(self.reconnect_delay * 2, 30.0)
-        await self.connect()
-
-    async def handle_messages(self):
-        try:
-            async for message in self.websocket:
-                data = json.loads(message)
-                await self.handle_message(data)
-        except ConnectionClosedError:
-            print("Connection closed, reconnecting...")
-            await self.reconnect()
-
-    async def handle_message(self, message):
-        msg_type = message.get('type')
-
-        if msg_type == 'message':
-            print(f"New message in {message['room_id']}: {message['content']}")
-        elif msg_type == 'presence.update':
-            print(f"User {message['user_id']} is {message['status']}")
-        elif msg_type == 'server.shutdown':
-            delay = message.get('reconnect_after_ms', 5000) / 1000
-            print(f"Server shutting down, reconnecting in {delay}s")
-            await asyncio.sleep(delay)
-            await self.connect()
-
-    async def send_message(self, room_id, content):
-        message = {
-            "type": "send_message",
-            "room_id": room_id,
-            "content": content
-        }
-        await self.send(message)
-
-    async def acknowledge(self, room_id, seq):
-        message = {
-            "type": "ack",
-            "room_id": room_id,
-            "seq": seq
-        }
-        await self.send(message)
-
-    async def send(self, data):
-        if self.websocket:
-            await self.websocket.send(json.dumps(data))
-
-# Usage
-async def main():
-    client = ChatAPIClient('your-api-key', 'user123')
-    await client.connect()
-
-    while True:
-        await asyncio.sleep(1)
-
-asyncio.run(main())
-```
-
-### Go (gorilla/websocket — server client)
-
-```go
-package main
-
-import (
-    "encoding/json"
-    "log"
-    "net/http"
-    "net/url"
-    "time"
-
-    "github.com/gorilla/websocket"
-)
-
-type ChatAPIClient struct {
-    apiKey         string
-    userId         string
-    serverURL      string
-    conn           *websocket.Conn
-    reconnectDelay time.Duration
-}
-
-func NewChatAPIClient(apiKey, userId, serverURL string) *ChatAPIClient {
-    return &ChatAPIClient{
-        apiKey:         apiKey,
-        userId:         userId,
-        serverURL:      serverURL,
-        reconnectDelay: time.Second,
-    }
-}
-
-func (c *ChatAPIClient) connect() error {
-    u, err := url.Parse(c.serverURL + "/ws")
-    if err != nil {
-        return err
-    }
-
-    // Server clients authenticate via headers
-    headers := http.Header{}
-    headers.Set("X-API-Key", c.apiKey)
-    headers.Set("X-User-Id", c.userId)
-
-    conn, _, err := websocket.DefaultDialer.Dial(u.String(), headers)
-    if err != nil {
-        return err
-    }
-
-    c.conn = conn
-    c.reconnectDelay = time.Second
-    log.Println("Connected to ChatAPI")
-
-    go c.handleMessages()
-    return nil
-}
-
-func (c *ChatAPIClient) handleMessages() {
-    defer c.conn.Close()
-
-    for {
-        var message map[string]interface{}
-        err := c.conn.ReadJSON(&message)
-        if err != nil {
-            log.Println("Read error:", err)
-            c.reconnect()
-            return
-        }
-
-        c.handleMessage(message)
-    }
-}
-
-func (c *ChatAPIClient) handleMessage(message map[string]interface{}) {
-    msgType, ok := message["type"].(string)
-    if !ok {
-        return
-    }
-
-    switch msgType {
-    case "message":
-        log.Printf("New message in %s: %s", message["room_id"], message["content"])
-    case "presence.update":
-        log.Printf("User %s is %s", message["user_id"], message["status"])
-    case "server.shutdown":
-        if delay, ok := message["reconnect_after_ms"].(float64); ok {
-            log.Printf("Server shutting down, reconnecting in %.0fms", delay)
-            time.Sleep(time.Duration(delay) * time.Millisecond)
-            c.connect()
-        }
-    }
-}
-
-func (c *ChatAPIClient) reconnect() {
-    c.conn = nil
-    time.Sleep(c.reconnectDelay)
-    c.reconnectDelay = min(c.reconnectDelay*2, 30*time.Second)
-
-    if err := c.connect(); err != nil {
-        log.Println("Reconnect failed:", err)
-        c.reconnect()
-    }
-}
-
-func (c *ChatAPIClient) SendMessage(roomID, content string) error {
-    message := map[string]interface{}{
-        "type":    "send_message",
-        "room_id": roomID,
-        "content": content,
-    }
-    return c.send(message)
-}
-
-func (c *ChatAPIClient) Acknowledge(roomID string, seq int) error {
-    message := map[string]interface{}{
-        "type":    "ack",
-        "room_id": roomID,
-        "seq":     seq,
-    }
-    return c.send(message)
-}
-
-func (c *ChatAPIClient) send(data interface{}) error {
-    if c.conn == nil {
-        return errors.New("not connected")
-    }
-    return c.conn.WriteJSON(data)
-}
-
-func min(a, b time.Duration) time.Duration {
-    if a < b {
-        return a
-    }
-    return b
-}
-
-// Usage
-func main() {
-    client := NewChatAPIClient("your-api-key", "user123", "ws://localhost:8080")
-    if err := client.connect(); err != nil {
-        log.Fatal("Failed to connect:", err)
-    }
-
-    select {}
-}
-```
-
-## Best Practices
-
-### Connection Management
-
-- **Single Connection**: Maintain one WebSocket connection per user
-- **Reconnection Logic**: Implement exponential backoff
-- **Graceful Shutdown**: Handle server shutdown messages
-- **Connection Pooling**: Avoid multiple connections for the same user (server enforces `WS_MAX_CONNECTIONS_PER_USER`, default 5 — excess connections are rejected with a policy violation close frame)
-
-### Message Handling
-
-- **Deduplication**: Track message IDs to prevent duplicates
-- **Sequence Tracking**: Maintain per-room sequence numbers
-- **ACK Batching**: Send ACKs for highest contiguous sequence
-- **Error Recovery**: Handle network interruptions gracefully
-
-### Performance
-
-- **Message Batching**: Send multiple messages in single WebSocket frame when possible
-- **Compression**: Enable WebSocket compression for large messages
-- **Ping/Pong**: Monitor connection health
-- **Resource Limits**: Implement message size and rate limits
-
-### Security
-
-- **Authentication**: Always use secure WebSocket (WSS) in production
-- **Token Flow**: Use `POST /ws/token` for browser clients — never expose API keys in URLs
-- **Input Validation**: Validate all incoming messages
-- **Rate Limiting**: Respect server rate limits
-- **CORS**: Configure `ALLOWED_ORIGINS` on the server to restrict which browser origins may connect
+The server enforces `WS_MAX_CONNECTIONS_PER_USER` (default 5) concurrent connections per user. Excess connections are rejected with a policy-violation close frame.

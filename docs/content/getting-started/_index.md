@@ -5,190 +5,188 @@ weight: 10
 
 # Getting Started with ChatAPI
 
-Welcome to ChatAPI! This guide will help you get up and running with your own chat service instance.
-
 ## Prerequisites
 
-Before you begin, ensure you have the following installed:
-
-- **Go 1.22 or later** - [Download from golang.org](https://golang.org/dl/) (required for enhanced `net/http` routing)
-- **Git** - For cloning the repository
-- **SQLite3** (optional) - For CGO builds with native SQLite driver
+- Go 1.22+
+- CGO-enabled build toolchain (for the SQLite driver)
 
 ## Installation
 
-### 1. Clone the Repository
+### Build from source
 
 ```bash
-git clone https://github.com/hastenr/chatapi.git
+git clone https://github.com/byabasaija/chatapi.git
 cd chatapi
-```
-
-### 2. Install Dependencies
-
-```bash
 go mod download
+go build -o bin/chatapi ./cmd/chatapi
 ```
 
-### 3. Build the Application
+### Docker
 
 ```bash
-# Build with modernc SQLite driver (recommended)
-go build -o bin/chatapi ./cmd/chatapi
-
-# Or build with CGO SQLite driver (if you have SQLite3 installed)
-CGO_ENABLED=1 go build -o bin/chatapi ./cmd/chatapi
+docker pull byabasaija/chatapi:latest
 ```
 
 ## Configuration
 
-ChatAPI uses environment variables for configuration. Create a `.env` file or set them directly:
+ChatAPI is configured entirely via environment variables. Copy `.env.example` and fill in the required values:
 
 ```bash
-# Server configuration
-export LISTEN_ADDR=":8080"
-export DATABASE_DSN="file:chatapi.db?_journal_mode=WAL&_busy_timeout=5000"
-
-# Admin configuration (required for tenant creation)
-export MASTER_API_KEY="your-secure-master-key-here"
-
-# Optional: Database directory
-export DATA_DIR="./data"
-
-# Optional: Logging level
-export LOG_LEVEL="info"
-
-# CORS and WebSocket origin allowlist (use * for local dev only)
-export ALLOWED_ORIGINS="*"
-
-# Maximum concurrent WebSocket connections per user
-export WS_MAX_CONNECTIONS_PER_USER=5
+cp .env.example .env
 ```
-
-### Configuration Options
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `JWT_SECRET` | *(required)* | Secret used to validate JWT Bearer tokens. Generate with `openssl rand -base64 32`. |
 | `LISTEN_ADDR` | `:8080` | Server listen address |
-| `DATABASE_DSN` | `file:chatapi.db?_journal_mode=WAL&_busy_timeout=5000` | SQLite database connection string |
-| `MASTER_API_KEY` | *(required)* | Master API key for admin operations — server will not start without this |
-| `LOG_LEVEL` | `info` | Logging level (`debug`, `info`, `warn`, `error`) |
-| `DEFAULT_RATE_LIMIT` | `100` | Requests per second per tenant |
-| `ALLOWED_ORIGINS` | *(none)* | Comma-separated allowed origins for WebSocket connections and REST CORS headers (e.g. `https://app.example.com`). Use `*` for dev only. Unset = reject all browser-origin connections |
+| `DATABASE_DSN` | `file:chatapi.db?_journal_mode=WAL&_busy_timeout=5000` | SQLite connection string |
+| `ALLOWED_ORIGINS` | *(none)* | Comma-separated allowed origins for CORS and WebSocket upgrade. Use `*` for local dev. |
 | `WS_MAX_CONNECTIONS_PER_USER` | `5` | Maximum concurrent WebSocket connections per user |
-| `DATA_DIR` | `/var/chatapi` | Directory for data files |
-| `LOG_DIR` | `/var/log/chatapi` | Directory for log files |
-| `WORKER_INTERVAL` | `30s` | Background worker interval |
-| `RETRY_MAX_ATTEMPTS` | `5` | Max delivery retry attempts |
-| `RETRY_INTERVAL` | `30s` | Retry interval |
-| `SHUTDOWN_DRAIN_TIMEOUT` | `10s` | Graceful shutdown timeout |
+| `WORKER_INTERVAL` | `30s` | Background delivery worker interval |
+| `SHUTDOWN_DRAIN_TIMEOUT` | `10s` | Graceful shutdown drain timeout |
 
-## Running ChatAPI
-
-### Start the Server
+## Start the server
 
 ```bash
+export JWT_SECRET=$(openssl rand -base64 32)
+export ALLOWED_ORIGINS="*"
 ./bin/chatapi
 ```
 
-You should see output similar to:
+Expected output:
+
 ```
-2025/12/13 12:00:00 Starting ChatAPI server addr=:8080
-2025/12/13 12:00:00 Starting delivery worker interval=30s
-2025/12/13 12:00:00 Starting WAL checkpoint worker interval=5m0s
-2025/12/13 12:00:00 Starting HTTP server addr=:8080
+time=2026-04-02T12:00:00Z level=INFO msg="starting server" addr=:8080
+time=2026-04-02T12:00:00Z level=INFO msg="delivery worker started" interval=30s
 ```
 
-### Health Check
-
-Verify the server is running:
+### Health check
 
 ```bash
 curl http://localhost:8080/health
 ```
 
-Expected response:
 ```json
-{
-  "status": "ok",
-  "service": "chatapi",
-  "uptime": "1m30s",
-  "db_writable": true
+{"status": "ok", "db_writable": true}
+```
+
+## Authentication
+
+ChatAPI uses JWT Bearer tokens. Your backend signs JWTs with `JWT_SECRET`; ChatAPI validates the signature and reads the `sub` claim as the user ID.
+
+**Mint a token for testing** (Go):
+
+```go
+package main
+
+import (
+    "fmt"
+    "time"
+
+    "github.com/golang-jwt/jwt/v5"
+)
+
+func mintToken(secret, userID string) (string, error) {
+    claims := jwt.MapClaims{
+        "sub": userID,
+        "exp": time.Now().Add(24 * time.Hour).Unix(),
+    }
+    token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+    return token.SignedString([]byte(secret))
+}
+
+func main() {
+    tok, _ := mintToken("your-jwt-secret", "alice")
+    fmt.Println(tok)
 }
 ```
 
-### Create Your First Tenant
+Or use any JWT library in your language of choice — the token just needs a `sub` claim and must be signed with HS256 using `JWT_SECRET`.
+
+## First REST call
 
 ```bash
-curl -X POST http://localhost:8080/admin/tenants \
-  -H "X-Master-Key: your-secure-master-key-here" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "MyApp"}'
-```
+TOKEN="<your-signed-jwt>"
 
-The response includes an `api_key` field. **This is the only time the plaintext API key is returned** — it is stored as a SHA-256 hash in the database and cannot be retrieved again. Copy it immediately and store it in a secrets manager or environment variable.
+# Create a DM room between alice and bob
+curl -X POST http://localhost:8080/rooms \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"type": "dm", "members": ["alice", "bob"]}'
+```
 
 ```json
 {
-  "tenant_id": "tenant_abc123",
-  "name": "MyApp",
-  "api_key": "sk_abc123def456...",
-  "created_at": "2025-12-13T12:00:00Z"
+  "room_id": "room_abc123",
+  "type": "dm",
+  "name": null,
+  "metadata": null,
+  "last_seq": 0,
+  "created_at": "2026-04-02T12:00:00Z"
 }
+```
+
+## First WebSocket connection
+
+**Browser:**
+
+```javascript
+const token = "<your-signed-jwt>";
+const ws = new WebSocket(`ws://localhost:8080/ws?token=${token}`);
+
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  console.log(msg);
+};
+```
+
+**Server / Node.js client:**
+
+```javascript
+const WebSocket = require("ws");
+
+const ws = new WebSocket("ws://localhost:8080/ws", {
+  headers: { Authorization: "Bearer <your-signed-jwt>" },
+});
+
+ws.on("message", (data) => {
+  console.log(JSON.parse(data));
+});
+```
+
+After connecting, send a message to a room:
+
+```javascript
+ws.send(JSON.stringify({
+  type: "send_message",
+  data: { room_id: "room_abc123", content: "Hello!" },
+}));
 ```
 
 ## Next Steps
 
-Now that you have ChatAPI running, you can:
-
-1. **[Create a Tenant](/guides/tenants/)** - Set up your first tenant with API keys
-2. **[Create Rooms](/guides/rooms/)** - Start creating chat rooms
-3. **[Send Messages](/guides/messaging/)** - Begin messaging
-4. **[Integrate WebSockets](/guides/websockets/)** - Add real-time functionality
-
-## Development Mode
-
-For development with live reloading:
-
-```bash
-# Run with debug logging
-export LOG_LEVEL="debug"
-./bin/chatapi
-
-# Or use air for hot reloading (if installed)
-air
-```
+- [REST API Reference](/api/rest/) — Full endpoint documentation
+- [WebSocket API Reference](/api/websocket/) — All events and client messages
+- [AI Bots](/guides/bots/) — Add an LLM-backed bot to a room
+- [Architecture](/architecture/) — How ChatAPI is structured internally
 
 ## Troubleshooting
 
-### Common Issues
-
 **Port already in use:**
 ```bash
-# Change the port
 export LISTEN_ADDR=":3000"
 ```
 
 **Database permission errors:**
 ```bash
-# Ensure write permissions to data directory
 mkdir -p ./data
 chmod 755 ./data
+export DATABASE_DSN="file:./data/chatapi.db?_journal_mode=WAL&_busy_timeout=5000"
 ```
 
 **Build errors:**
 ```bash
-# Clean and rebuild
 go clean
 go mod tidy
 go build ./cmd/chatapi
 ```
-
-### Logs
-
-Check the structured JSON logs for debugging:
-```bash
-./bin/chatapi 2>&1 | jq .
-```
-
-For more help, check the [troubleshooting guide](/guides/troubleshooting/) or [open an issue](https://github.com/hastenr/chatapi/issues).
