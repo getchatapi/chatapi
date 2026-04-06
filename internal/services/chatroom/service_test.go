@@ -6,18 +6,15 @@ import (
 	"github.com/hastenr/chatapi/internal/models"
 	"github.com/hastenr/chatapi/internal/repository/sqlite"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
-	"github.com/hastenr/chatapi/internal/services/tenant"
 	"github.com/hastenr/chatapi/internal/testutil"
 )
+
+const defaultTenantID = "default"
 
 func newSvc(t *testing.T) (svc *chatroom.Service, tenantID string) {
 	t.Helper()
 	db := testutil.NewTestDB(t)
-	ten, err := tenant.NewService(sqlite.NewTenantRepository(db.DB)).CreateTenant("test")
-	if err != nil {
-		t.Fatalf("CreateTenant: %v", err)
-	}
-	return chatroom.NewService(sqlite.NewRoomRepository(db.DB)), ten.TenantID
+	return chatroom.NewService(sqlite.NewRoomRepository(db.DB)), defaultTenantID
 }
 
 // --- CreateRoom ---
@@ -152,22 +149,18 @@ func TestGetRoom_NotFound(t *testing.T) {
 	}
 }
 
-func TestGetRoom_TenantIsolation(t *testing.T) {
+func TestGetRoom_WrongTenant(t *testing.T) {
 	db := testutil.NewTestDB(t)
 	svc := chatroom.NewService(sqlite.NewRoomRepository(db.DB))
-	tenantSvc := tenant.NewService(sqlite.NewTenantRepository(db.DB))
 
-	t1, _ := tenantSvc.CreateTenant("t1")
-	t2, _ := tenantSvc.CreateTenant("t2")
-
-	room, _ := svc.CreateRoom(t1.TenantID, &models.CreateRoomRequest{
+	room, _ := svc.CreateRoom("tenant_a", &models.CreateRoomRequest{
 		Type: "group", Name: "test", Members: []string{"a", "b"},
 	})
 
-	// Tenant 2 must not be able to access tenant 1's room
-	_, err := svc.GetRoom(t2.TenantID, room.RoomID)
+	// A different tenant_id must not be able to access another tenant's room
+	_, err := svc.GetRoom("tenant_b", room.RoomID)
 	if err == nil {
-		t.Error("tenant isolation broken: tenant 2 can see tenant 1's room")
+		t.Error("tenant isolation broken: tenant_b can see tenant_a's room")
 	}
 }
 

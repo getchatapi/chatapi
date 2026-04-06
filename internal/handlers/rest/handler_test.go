@@ -42,7 +42,7 @@ func newTestHandler(t *testing.T) *rest.Handler {
 
 	t.Cleanup(func() { realtimeSvc.Shutdown(context.Background()) })
 
-	return rest.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, notifSvc, botSvc, cfg)
+	return rest.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, notifSvc, botSvc, db.DB, cfg)
 }
 
 // newMux wires all handler routes with auth middleware so PathValue and JWT

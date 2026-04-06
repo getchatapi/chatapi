@@ -68,10 +68,3 @@ type BotRepository interface {
 	Exists(botID string) (bool, error)
 }
 
-// TenantRepository handles tenant management.
-type TenantRepository interface {
-	Create(tenantID, apiKeyHash, name, configJSON string) error
-	GetByAPIKeyHash(apiKeyHash string) (*models.Tenant, error)
-	GetConfig(tenantID string) (string, error)
-	List() ([]*models.Tenant, error)
-}

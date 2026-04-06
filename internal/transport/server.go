@@ -44,7 +44,7 @@ func NewServer(cfg *config.Config, database *db.DB, realtimeSvc *realtime.Servic
 	deliverySvc := delivery.NewService(delivRepo, realtimeSvc, chatroomSvc, cfg.WebhookURL, cfg.WebhookSecret, webhookSvc)
 	botSvc := bot.NewService(botRepo, messageSvc, realtimeSvc, chatroomSvc, deliverySvc)
 
-	restHandler := rest.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, notifSvc, botSvc, cfg)
+	restHandler := rest.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, notifSvc, botSvc, database.DB, cfg)
 	wsHandler := ws.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, botSvc, cfg)
 
 	mux := http.NewServeMux()

@@ -7,11 +7,12 @@ import (
 	"github.com/hastenr/chatapi/internal/repository/sqlite"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/message"
-	"github.com/hastenr/chatapi/internal/services/tenant"
 	"github.com/hastenr/chatapi/internal/testutil"
 )
 
-// scenario sets up a tenant + room ready for message tests.
+const defaultTenantID = "default"
+
+// scenario sets up a room ready for message tests.
 type scenario struct {
 	tenantID string
 	roomID   string
@@ -22,14 +23,8 @@ func newScenario(t *testing.T) *scenario {
 	t.Helper()
 	db := testutil.NewTestDB(t)
 
-	tenantSvc := tenant.NewService(sqlite.NewTenantRepository(db.DB))
-	ten, err := tenantSvc.CreateTenant("test")
-	if err != nil {
-		t.Fatalf("CreateTenant: %v", err)
-	}
-
 	chatroomSvc := chatroom.NewService(sqlite.NewRoomRepository(db.DB))
-	room, err := chatroomSvc.CreateRoom(ten.TenantID, &models.CreateRoomRequest{
+	room, err := chatroomSvc.CreateRoom(defaultTenantID, &models.CreateRoomRequest{
 		Type:    "group",
 		Name:    "general",
 		Members: []string{"user1", "user2"},
@@ -39,7 +34,7 @@ func newScenario(t *testing.T) *scenario {
 	}
 
 	return &scenario{
-		tenantID: ten.TenantID,
+		tenantID: defaultTenantID,
 		roomID:   room.RoomID,
 		msgSvc:   message.NewService(sqlite.NewMessageRepository(db.DB)),
 	}

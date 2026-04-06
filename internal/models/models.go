@@ -2,15 +2,6 @@ package models
 
 import "time"
 
-// Tenant represents a tenant in the system
-type Tenant struct {
-	TenantID string    `json:"tenant_id" db:"tenant_id"`
-	APIKey   string    `json:"-" db:"api_key"` // Never serialize API key
-	Name     string    `json:"name,omitempty" db:"name"`
-	Config   string    `json:"-" db:"config"` // JSON config, not serialized
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
-}
-
 // Room represents a chat room
 type Room struct {
 	RoomID    string    `json:"room_id" db:"room_id"`

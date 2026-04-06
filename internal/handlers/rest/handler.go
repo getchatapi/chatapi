@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"database/sql"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -24,14 +25,15 @@ const defaultTenantID = "default"
 
 // Handler handles REST API requests
 type Handler struct {
-	chatroomSvc  *chatroom.Service
-	messageSvc   *message.Service
-	realtimeSvc  *realtime.Service
-	deliverySvc  *delivery.Service
-	notifSvc     *notification.Service
-	botSvc    *bot.Service
-	jwtSecret string
-	startTime    time.Time
+	chatroomSvc *chatroom.Service
+	messageSvc  *message.Service
+	realtimeSvc *realtime.Service
+	deliverySvc *delivery.Service
+	notifSvc    *notification.Service
+	botSvc      *bot.Service
+	db          *sql.DB
+	jwtSecret   string
+	startTime   time.Time
 }
 
 // NewHandler creates a new REST handler
@@ -42,6 +44,7 @@ func NewHandler(
 	deliverySvc *delivery.Service,
 	notifSvc *notification.Service,
 	botSvc *bot.Service,
+	db *sql.DB,
 	cfg *config.Config,
 ) *Handler {
 	return &Handler{
@@ -51,6 +54,7 @@ func NewHandler(
 		deliverySvc: deliverySvc,
 		notifSvc:    notifSvc,
 		botSvc:      botSvc,
+		db:          db,
 		jwtSecret:   cfg.JWTSecret,
 		startTime:   time.Now(),
 	}
@@ -106,12 +110,16 @@ func (h *Handler) requireUserID(w http.ResponseWriter, r *http.Request) string {
 // HandleHealth health check endpoint
 func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	uptime := time.Since(h.startTime)
+	dbWritable := h.db.PingContext(r.Context()) == nil
 
 	w.Header().Set("Content-Type", "application/json")
+	if !dbWritable {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":  "ok",
-		"service": "chatapi",
-		"uptime":  uptime.String(),
+		"status":     "ok",
+		"db_writable": dbWritable,
+		"uptime":     uptime.String(),
 	})
 }
 
