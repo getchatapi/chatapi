@@ -7,7 +7,7 @@ weight: 10
 
 ## Prerequisites
 
-- Go 1.22+
+- Go 1.25+
 - CGO-enabled build toolchain (for the SQLite driver)
 
 ## Installation
@@ -38,12 +38,13 @@ cp .env.example .env
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `JWT_SECRET` | *(required)* | Secret used to validate JWT Bearer tokens. Generate with `openssl rand -base64 32`. |
+| `ALLOWED_ORIGINS` | *(none)* | Comma-separated allowed origins for CORS and WebSocket upgrade. Required for browser clients. Use `*` for local dev. |
+| `WEBHOOK_URL` | *(none)* | Your backend URL called when a message arrives for an offline user. Leave blank to disable. |
+| `WEBHOOK_SECRET` | *(none)* | HMAC-SHA256 secret for verifying webhook calls from ChatAPI. |
 | `LISTEN_ADDR` | `:8080` | Server listen address |
-| `DATABASE_DSN` | `file:chatapi.db?_journal_mode=WAL&_busy_timeout=5000` | SQLite connection string |
-| `ALLOWED_ORIGINS` | *(none)* | Comma-separated allowed origins for CORS and WebSocket upgrade. Use `*` for local dev. |
-| `WS_MAX_CONNECTIONS_PER_USER` | `5` | Maximum concurrent WebSocket connections per user |
-| `WORKER_INTERVAL` | `30s` | Background delivery worker interval |
-| `SHUTDOWN_DRAIN_TIMEOUT` | `10s` | Graceful shutdown drain timeout |
+| `DATABASE_DSN` | `file:./chatapi.db?_journal_mode=WAL&_busy_timeout=5000` | SQLite connection string. Use an absolute path in Docker. |
+| `RATE_LIMIT_MESSAGES` | `10` | Sustained message sends per second per user. Set to `0` to disable. |
+| `RATE_LIMIT_MESSAGES_BURST` | `20` | Burst allowance on top of the sustained rate. |
 
 ## Start the server
 

@@ -17,8 +17,7 @@ ChatAPI is a single-binary chat service built on standard Go, SQLite, and JWT au
                        │
 ┌──────────────────────▼────────────────────────────┐
 │  Services (internal/services/)                    │
-│  chatroom · message · delivery · realtime         │
-│  notification · bot                               │
+│  chatroom · message · delivery · realtime · bot   │
 └──────────────────────┬────────────────────────────┘
                        │
 ┌──────────────────────▼────────────────────────────┐
@@ -44,10 +43,10 @@ Business logic lives in `internal/services/<name>/service.go`. Services receive 
 |---------|---------------|
 | `chatroom` | Room creation, membership, metadata |
 | `message` | Message storage, sequencing, editing |
-| `delivery` | Undelivered queue, retry, ACK processing |
+| `delivery` | Undelivered queue, retry, webhook calls for offline users |
 | `realtime` | WebSocket connection registry, pub/sub fan-out |
-| `notification` | Topic subscriptions, `POST /notify` dispatch |
 | `bot` | Bot registration, LLM invocation, streaming |
+| `webhook` | Outbound HTTP calls to your backend for offline delivery |
 
 ### Repository interfaces
 
@@ -94,11 +93,10 @@ ChatAPI uses SQLite with WAL mode. Migrations live in `internal/db/migrations/`.
 -- Rooms
 CREATE TABLE rooms (
   room_id    TEXT PRIMARY KEY,
-  tenant_id  TEXT NOT NULL,           -- always "default" in single-tenant mode
-  type       TEXT NOT NULL,           -- 'dm' | 'group' | 'channel'
-  unique_key TEXT NULL,               -- deterministic key for DMs
+  type       TEXT NOT NULL,     -- 'dm' | 'group'
+  unique_key TEXT NULL,         -- deterministic key for DMs
   name       TEXT NULL,
-  metadata   JSON NULL,               -- arbitrary app-level context
+  metadata   JSON NULL,         -- arbitrary app-level context
   last_seq   INTEGER DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -106,7 +104,6 @@ CREATE TABLE rooms (
 -- Room membership
 CREATE TABLE room_members (
   chatroom_id TEXT NOT NULL,
-  tenant_id   TEXT NOT NULL,
   user_id     TEXT NOT NULL,
   role        TEXT DEFAULT 'member',
   joined_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -116,29 +113,26 @@ CREATE TABLE room_members (
 -- Messages with per-room sequencing
 CREATE TABLE messages (
   message_id  TEXT PRIMARY KEY,
-  tenant_id   TEXT NOT NULL,
   chatroom_id TEXT NOT NULL,
   sender_id   TEXT NOT NULL,
   seq         INTEGER NOT NULL,
   content     TEXT NOT NULL,
-  meta        TEXT NULL,              -- arbitrary JSON string per message
+  meta        TEXT NULL,        -- arbitrary JSON string per message
   created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Per-user delivery tracking (last ACKed seq per room)
 CREATE TABLE delivery_state (
-  tenant_id   TEXT NOT NULL,
   user_id     TEXT NOT NULL,
   chatroom_id TEXT NOT NULL,
   last_ack    INTEGER DEFAULT 0,
   updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (tenant_id, user_id, chatroom_id)
+  PRIMARY KEY (user_id, chatroom_id)
 );
 
 -- Undelivered message queue (for offline users)
 CREATE TABLE undelivered_messages (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  tenant_id       TEXT NOT NULL,
   user_id         TEXT NOT NULL,
   chatroom_id     TEXT NOT NULL,
   message_id      TEXT NOT NULL,
@@ -148,36 +142,13 @@ CREATE TABLE undelivered_messages (
   last_attempt_at DATETIME NULL
 );
 
--- Notifications
-CREATE TABLE notifications (
-  notification_id TEXT PRIMARY KEY,
-  tenant_id       TEXT NOT NULL,
-  topic           TEXT NOT NULL,
-  payload         JSON NOT NULL,
-  targets         JSON NULL,
-  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-  status          TEXT DEFAULT 'pending',
-  attempts        INTEGER DEFAULT 0,
-  last_attempt_at DATETIME NULL
-);
-
--- Notification topic subscriptions
-CREATE TABLE notification_subscriptions (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  tenant_id     TEXT NOT NULL,
-  subscriber_id TEXT NOT NULL,
-  topic         TEXT NOT NULL,
-  created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE (tenant_id, subscriber_id, topic)
-);
-
 -- Bots
 CREATE TABLE bots (
   bot_id        TEXT PRIMARY KEY,
   name          TEXT NOT NULL,
-  mode          TEXT NOT NULL DEFAULT 'llm',   -- 'llm' | 'external'
-  provider      TEXT,                           -- 'openai' | 'anthropic'
-  base_url      TEXT,                           -- override for OpenAI-compatible endpoints
+  mode          TEXT NOT NULL DEFAULT 'llm',  -- 'llm' | 'external'
+  provider      TEXT,                          -- 'openai' | 'anthropic'
+  base_url      TEXT,                          -- override for OpenAI-compatible endpoints
   model         TEXT,
   api_key       TEXT,
   system_prompt TEXT,

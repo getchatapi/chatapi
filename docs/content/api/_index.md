@@ -5,7 +5,7 @@ weight: 20
 
 # API Reference
 
-ChatAPI provides REST and WebSocket APIs for messaging, bots, and notifications. All endpoints (except `/health` and `/metrics`) require a JWT Bearer token.
+ChatAPI provides REST and WebSocket APIs for messaging and bots. All endpoints (except `/health` and `/metrics`) require a JWT Bearer token.
 
 ## Authentication
 
@@ -24,7 +24,7 @@ Your backend signs JWTs with `JWT_SECRET`. The `sub` claim is the user ID for th
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/rooms` | List rooms the user belongs to |
-| `POST` | `/rooms` | Create a room (DM, group, or channel) |
+| `POST` | `/rooms` | Create a room (DM or group) |
 | `GET` | `/rooms/{room_id}` | Get room details |
 | `GET` | `/rooms/{room_id}/members` | List room members |
 | `POST` | `/rooms/{room_id}/members` | Add a member (or bot) to a room |
@@ -67,7 +67,6 @@ ws://localhost:8080/ws                    # server (Authorization header)
 | `ack.received` | Another user acknowledged messages |
 | `typing` | Another user's typing status |
 | `presence.update` | User came online or went offline |
-| `notification` | Topic-based notification delivered to subscriber |
 | `server.shutdown` | Server is restarting |
 
 ## SDK

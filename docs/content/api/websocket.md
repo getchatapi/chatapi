@@ -258,4 +258,4 @@ connect();
 
 ## Connection limits
 
-The server enforces `WS_MAX_CONNECTIONS_PER_USER` (default 5) concurrent connections per user. Excess connections are rejected with a policy-violation close frame.
+The server enforces a maximum of 5 concurrent WebSocket connections per user by default (configurable via `WS_MAX_CONNECTIONS_PER_USER`). Excess connections are rejected with a policy-violation close frame.

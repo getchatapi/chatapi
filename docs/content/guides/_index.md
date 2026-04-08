@@ -44,26 +44,6 @@ const ws = new WebSocket(`ws://localhost:8080/ws?token=${jwt}`);
 ws.onmessage = (event) => console.log(JSON.parse(event.data));
 ```
 
-**5. Subscribe to notifications**
-```bash
-curl -X POST http://localhost:8080/subscriptions \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"topic": "order.updates"}'
-```
-
-**6. Send a notification from your backend**
-```bash
-curl -X POST http://localhost:8080/notify \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "topic": "order.updates",
-    "payload": {"status": "shipped", "message": "Your order is on its way!"},
-    "targets": {"topic_subscribers": true}
-  }'
-```
-
 ## See Also
 
 - [REST API Reference](/api/rest/) — Full endpoint documentation

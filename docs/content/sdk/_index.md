@@ -165,15 +165,6 @@ client.on('presence.update', (event) => {
 });
 ```
 
-### Notifications
-
-```typescript
-client.on('notification', (event) => {
-  const payload = JSON.parse(event.payload);
-  console.log(`[${event.topic}]`, payload);
-});
-```
-
 ### Connection lifecycle
 
 ```typescript
@@ -190,28 +181,6 @@ const handler = (event) => { /* ... */ };
 client.on('message', handler);
 client.off('message', handler);  // remove specific handler
 client.off('message');           // remove all handlers for this event
-```
-
----
-
-## Notifications
-
-```typescript
-// Subscribe the current user to a topic
-await client.subscriptions.subscribe('order.updates');
-
-// List subscriptions
-const subs = await client.subscriptions.list();
-
-// Unsubscribe
-await client.subscriptions.unsubscribe(subs[0].id);
-
-// Send a notification (usually from your backend)
-await client.notifications.send({
-  topic: 'order.updates',
-  payload: { status: 'shipped', order_id: 'ord_99' },
-  targets: { topic_subscribers: true },
-});
 ```
 
 ---

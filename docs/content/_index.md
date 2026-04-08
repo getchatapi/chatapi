@@ -15,9 +15,9 @@ Self-hosted, open-source chat infrastructure for AI-powered apps. Single binary,
 - **JWT Auth** — Your backend signs JWTs with `JWT_SECRET`. ChatAPI validates them. No API keys, no sessions, no admin credentials required at runtime.
 - **Real-time Messaging** — WebSocket connections with typing indicators, presence, and at-least-once delivery guarantees.
 - **Message Sequencing** — Per-room ordered sequences with per-user ACK tracking and automatic retry for offline users.
-- **Notifications** — Topic-based push notifications delivered over WebSocket. Subscribe via REST, publish via `POST /notify`.
+- **Webhook** — Calls your backend when a message arrives for an offline user, so you can send push notifications, email, or SMS.
 - **Room Metadata** — Attach arbitrary JSON to rooms (listing IDs, order IDs, support ticket numbers, etc.).
-- **Room Types** — DMs, groups, and channels.
+- **Room Types** — DMs and groups.
 - **Portable Architecture** — Repository and broker interfaces let you swap SQLite → PostgreSQL or local pub/sub → Redis without changing business logic.
 - **Single Binary** — No external dependencies at runtime. SQLite with WAL mode included.
 
@@ -25,7 +25,7 @@ Self-hosted, open-source chat infrastructure for AI-powered apps. Single binary,
 
 ### Prerequisites
 
-- Go 1.22+
+- Go 1.25+
 - `JWT_SECRET` environment variable (required — server will not start without it)
 
 ### Run from source
