@@ -16,7 +16,6 @@ import (
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
 	"github.com/hastenr/chatapi/internal/services/message"
-	"github.com/hastenr/chatapi/internal/services/notification"
 	"github.com/hastenr/chatapi/internal/services/realtime"
 )
 
@@ -26,7 +25,6 @@ type Handler struct {
 	messageSvc  *message.Service
 	realtimeSvc *realtime.Service
 	deliverySvc *delivery.Service
-	notifSvc    *notification.Service
 	botSvc      *bot.Service
 	db          *sql.DB
 	jwtSecret   string
@@ -39,7 +37,6 @@ func NewHandler(
 	messageSvc *message.Service,
 	realtimeSvc *realtime.Service,
 	deliverySvc *delivery.Service,
-	notifSvc *notification.Service,
 	botSvc *bot.Service,
 	db *sql.DB,
 	cfg *config.Config,
@@ -49,7 +46,6 @@ func NewHandler(
 		messageSvc:  messageSvc,
 		realtimeSvc: realtimeSvc,
 		deliverySvc: deliverySvc,
-		notifSvc:    notifSvc,
 		botSvc:      botSvc,
 		db:          db,
 		jwtSecret:   cfg.JWTSecret,
@@ -294,41 +290,13 @@ func (h *Handler) HandleAck(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// HandleNotify notify endpoint
-func (h *Handler) HandleNotify(w http.ResponseWriter, r *http.Request) {
-	var req models.CreateNotificationRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, "invalid_request", "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	notif, err := h.notifSvc.CreateNotification(&req)
-	if err != nil {
-		slog.Error("Failed to create notification", "error", err)
-		writeError(w, "internal_error", "Failed to create notification", http.StatusInternalServerError)
-		return
-	}
-
-	go h.deliverySvc.DeliverNow(notif)
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(notif)
-}
-
-// HandleGetDeadLetters admin endpoint to get failed deliveries
+// HandleGetDeadLetters admin endpoint to get failed message deliveries
 func (h *Handler) HandleGetDeadLetters(w http.ResponseWriter, r *http.Request) {
 	limit := 100
 	if lim := r.URL.Query().Get("limit"); lim != "" {
 		if l, err := strconv.Atoi(lim); err == nil && l > 0 && l <= 1000 {
 			limit = l
 		}
-	}
-
-	failedNotifications, err := h.notifSvc.GetFailedNotifications(limit)
-	if err != nil {
-		writeError(w, "internal_error", err.Error(), http.StatusInternalServerError)
-		return
 	}
 
 	failedMessages, err := h.messageSvc.GetFailedUndeliveredMessages(limit)
@@ -339,8 +307,7 @@ func (h *Handler) HandleGetDeadLetters(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"failed_notifications": failedNotifications,
-		"failed_messages":      failedMessages,
+		"failed_messages": failedMessages,
 	})
 }
 
@@ -364,80 +331,6 @@ func (h *Handler) HandleGetUserRooms(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"rooms": rooms})
-}
-
-// HandleSubscribe subscribes the authenticated user to a notification topic
-func (h *Handler) HandleSubscribe(w http.ResponseWriter, r *http.Request) {
-	userID := h.requireUserID(w, r)
-	if userID == "" {
-		return
-	}
-
-	var req struct {
-		Topic string `json:"topic"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, "invalid_request", "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-	if req.Topic == "" {
-		writeError(w, "invalid_request", "topic is required", http.StatusBadRequest)
-		return
-	}
-
-	sub, err := h.notifSvc.Subscribe(userID, req.Topic)
-	if err != nil {
-		slog.Error("Failed to subscribe", "error", err, "user_id", userID)
-		writeError(w, "internal_error", "Failed to subscribe", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(sub)
-}
-
-// HandleUnsubscribe removes a notification subscription by ID
-func (h *Handler) HandleUnsubscribe(w http.ResponseWriter, r *http.Request) {
-	userID := h.requireUserID(w, r)
-	if userID == "" {
-		return
-	}
-
-	idStr := r.PathValue("id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		writeError(w, "invalid_request", "Invalid subscription ID", http.StatusBadRequest)
-		return
-	}
-
-	if err := h.notifSvc.Unsubscribe(userID, id); err != nil {
-		writeError(w, "not_found", "Subscription not found", http.StatusNotFound)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// HandleListSubscriptions lists the authenticated user's notification subscriptions
-func (h *Handler) HandleListSubscriptions(w http.ResponseWriter, r *http.Request) {
-	userID := h.requireUserID(w, r)
-	if userID == "" {
-		return
-	}
-
-	subs, err := h.notifSvc.GetUserSubscriptions(userID)
-	if err != nil {
-		writeError(w, "internal_error", "Failed to get subscriptions", http.StatusInternalServerError)
-		return
-	}
-
-	if subs == nil {
-		subs = []*models.NotificationSubscription{}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"subscriptions": subs})
 }
 
 // HandleDeleteMessage deletes a message. Only the original sender may delete their own message.

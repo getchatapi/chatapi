@@ -1,6 +1,6 @@
 module github.com/hastenr/chatapi
 
-go 1.22
+go 1.25.0
 
 require (
 	github.com/google/uuid v1.3.0
@@ -13,3 +13,5 @@ require (
 )
 
 require github.com/golang-jwt/jwt/v5 v5.3.1
+
+require golang.org/x/time v0.15.0

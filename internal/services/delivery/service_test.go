@@ -9,7 +9,6 @@ import (
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
 	"github.com/hastenr/chatapi/internal/services/message"
-	"github.com/hastenr/chatapi/internal/services/notification"
 	"github.com/hastenr/chatapi/internal/services/realtime"
 	"github.com/hastenr/chatapi/internal/services/webhook"
 	"github.com/hastenr/chatapi/internal/testutil"
@@ -20,7 +19,6 @@ type deliveryScenario struct {
 	deliverySvc *delivery.Service
 	messageSvc  *message.Service
 	realtimeSvc *realtime.Service
-	notifSvc    *notification.Service
 }
 
 func newDeliveryScenario(t *testing.T) *deliveryScenario {
@@ -44,14 +42,12 @@ func newDeliveryScenario(t *testing.T) *deliveryScenario {
 	webhookSvc := webhook.NewService()
 	deliverySvc := delivery.NewService(sqlite.NewDeliveryRepository(db.DB), realtimeSvc, chatroomSvc, "", "", webhookSvc)
 	messageSvc := message.NewService(sqlite.NewMessageRepository(db.DB))
-	notifSvc := notification.NewService(sqlite.NewNotificationRepository(db.DB))
 
 	return &deliveryScenario{
 		roomID:      room.RoomID,
 		deliverySvc: deliverySvc,
 		messageSvc:  messageSvc,
 		realtimeSvc: realtimeSvc,
-		notifSvc:    notifSvc,
 	}
 }
 
@@ -141,23 +137,6 @@ func TestProcessUndeliveredMessages_DeliveredCounters(t *testing.T) {
 	if after-before != 2 {
 		t.Errorf("delivery attempts delta = %d, want 2", after-before)
 	}
-}
-
-// --- DeliverNow (notifications) ---
-
-func TestDeliverNow_DoesNotPanic(t *testing.T) {
-	s := newDeliveryScenario(t)
-
-	notif, err := s.notifSvc.CreateNotification(&models.CreateNotificationRequest{
-		Topic:   "test.topic",
-		Payload: map[string]interface{}{"key": "value"},
-		Targets: models.NotificationTargets{UserIDs: []string{"user1"}},
-	})
-	if err != nil {
-		t.Fatalf("CreateNotification: %v", err)
-	}
-
-	s.deliverySvc.DeliverNow(notif)
 }
 
 // --- DeliveryAttempts / DeliveryFailures counters ---

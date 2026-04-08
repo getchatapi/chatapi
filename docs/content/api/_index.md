@@ -35,10 +35,7 @@ Your backend signs JWTs with `JWT_SECRET`. The `sub` claim is the user ID for th
 | `GET` | `/bots` | List bots |
 | `GET` | `/bots/{bot_id}` | Get a bot |
 | `DELETE` | `/bots/{bot_id}` | Delete a bot |
-| `POST` | `/notify` | Send a notification to users or topic subscribers |
-| `POST` | `/subscriptions` | Subscribe the current user to a notification topic |
-| `GET` | `/subscriptions` | List the user's notification subscriptions |
-| `DELETE` | `/subscriptions/{id}` | Unsubscribe |
+| `GET` | `/admin/dead-letters` | Failed message deliveries |
 | `GET` | `/health` | Service health check (no auth) |
 | `GET` | `/metrics` | Live server counters (no auth) |
 

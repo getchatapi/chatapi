@@ -11,23 +11,18 @@ import (
 // Config holds all configuration for the ChatAPI service
 type Config struct {
 	// Server configuration
-	ListenAddr           string
-	DataDir              string
-	LogDir               string
+	ListenAddr string
 
 	// Database configuration
-	DatabaseDSN          string
+	DatabaseDSN string
 
 	// Worker configuration
-	WorkerInterval       time.Duration
-	RetryMaxAttempts     int
-	RetryInterval        time.Duration
+	WorkerInterval   time.Duration
+	RetryMaxAttempts int
+	RetryInterval    time.Duration
 
 	// Shutdown configuration
 	ShutdownDrainTimeout time.Duration
-
-	// Logging
-	LogLevel             string
 
 	// Auth configuration
 	// JWTSecret is the HS256 secret used to validate tokens issued by the
@@ -40,18 +35,19 @@ type Config struct {
 
 	// WebSocket configuration
 	// Comma-separated list of allowed origins. Use "*" to allow all (dev only).
-	AllowedOrigins          []string
-	MaxConnectionsPerUser   int
+	AllowedOrigins        []string
+	MaxConnectionsPerUser int
+
+	// Rate limiting (applied per user to message sends over REST and WebSocket)
+	RateLimitMessages      float64 // sustained messages per second (0 = disabled)
+	RateLimitMessagesBurst int     // burst allowance
 }
 
 // Load loads configuration from environment variables with sensible defaults
 func Load() (*Config, error) {
 	cfg := &Config{
 		ListenAddr:            getEnv("LISTEN_ADDR", ":8080"),
-		DataDir:               getEnv("DATA_DIR", "/var/chatapi"),
-		LogDir:                getEnv("LOG_DIR", "/var/log/chatapi"),
-		DatabaseDSN:           getEnv("DATABASE_DSN", "file:chatapi.db?_journal_mode=WAL&_busy_timeout=5000"),
-		LogLevel:              getEnv("LOG_LEVEL", "info"),
+		DatabaseDSN:           getEnv("DATABASE_DSN", "file:./chatapi.db?_journal_mode=WAL&_busy_timeout=5000"),
 		RetryMaxAttempts:      getEnvAsInt("RETRY_MAX_ATTEMPTS", 5),
 		ShutdownDrainTimeout:  getEnvAsDuration("SHUTDOWN_DRAIN_TIMEOUT", 10*time.Second),
 		WorkerInterval:        getEnvAsDuration("WORKER_INTERVAL", 30*time.Second),
@@ -59,8 +55,10 @@ func Load() (*Config, error) {
 		JWTSecret:             getEnv("JWT_SECRET", ""),
 		WebhookURL:            getEnv("WEBHOOK_URL", ""),
 		WebhookSecret:         getEnv("WEBHOOK_SECRET", ""),
-		AllowedOrigins:        getEnvAsStringSlice("ALLOWED_ORIGINS"),
-		MaxConnectionsPerUser: getEnvAsInt("WS_MAX_CONNECTIONS_PER_USER", 5),
+		AllowedOrigins:         getEnvAsStringSlice("ALLOWED_ORIGINS"),
+		MaxConnectionsPerUser:  getEnvAsInt("WS_MAX_CONNECTIONS_PER_USER", 5),
+		RateLimitMessages:      getEnvAsFloat("RATE_LIMIT_MESSAGES", 10),
+		RateLimitMessagesBurst: getEnvAsInt("RATE_LIMIT_MESSAGES_BURST", 20),
 	}
 
 	return cfg, nil
@@ -87,6 +85,16 @@ func getEnvAsInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		if intValue, err := strconv.Atoi(value); err == nil {
 			return intValue
+		}
+	}
+	return defaultValue
+}
+
+// getEnvAsFloat gets an environment variable as float64 or returns a default value
+func getEnvAsFloat(key string, defaultValue float64) float64 {
+	if value := os.Getenv(key); value != "" {
+		if f, err := strconv.ParseFloat(value, 64); err == nil {
+			return f
 		}
 	}
 	return defaultValue

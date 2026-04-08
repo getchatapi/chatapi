@@ -47,7 +47,7 @@ func newWSEnv(t *testing.T) *wsTestEnv {
 
 	t.Cleanup(func() { realtimeSvc.Shutdown(context.Background()) })
 
-	handler := ws.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, botSvc, cfg)
+	handler := ws.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, botSvc, cfg, nil)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", handler.HandleConnection)

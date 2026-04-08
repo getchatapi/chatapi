@@ -15,7 +15,6 @@ import (
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
 	"github.com/hastenr/chatapi/internal/services/message"
-	"github.com/hastenr/chatapi/internal/services/notification"
 	"github.com/hastenr/chatapi/internal/services/realtime"
 	"github.com/hastenr/chatapi/internal/services/webhook"
 	"github.com/hastenr/chatapi/internal/testutil"
@@ -37,12 +36,11 @@ func newTestHandler(t *testing.T) *rest.Handler {
 	realtimeSvc := realtime.NewService(roomRepo, 5)
 	webhookSvc := webhook.NewService()
 	deliverySvc := delivery.NewService(sqlite.NewDeliveryRepository(db.DB), realtimeSvc, chatroomSvc, "", "", webhookSvc)
-	notifSvc := notification.NewService(sqlite.NewNotificationRepository(db.DB))
 	botSvc := bot.NewService(sqlite.NewBotRepository(db.DB), messageSvc, realtimeSvc, chatroomSvc, deliverySvc)
 
 	t.Cleanup(func() { realtimeSvc.Shutdown(context.Background()) })
 
-	return rest.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, notifSvc, botSvc, db.DB, cfg)
+	return rest.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, botSvc, db.DB, cfg)
 }
 
 // newMux wires all handler routes with auth middleware so PathValue and JWT
@@ -60,10 +58,6 @@ func newMux(h *rest.Handler) *http.ServeMux {
 	mux.HandleFunc("DELETE /rooms/{room_id}/messages/{message_id}", a(h.HandleDeleteMessage))
 	mux.HandleFunc("PUT /rooms/{room_id}/messages/{message_id}", a(h.HandleEditMessage))
 	mux.HandleFunc("POST /acks", a(h.HandleAck))
-	mux.HandleFunc("POST /notify", a(h.HandleNotify))
-	mux.HandleFunc("POST /subscriptions", a(h.HandleSubscribe))
-	mux.HandleFunc("GET /subscriptions", a(h.HandleListSubscriptions))
-	mux.HandleFunc("DELETE /subscriptions/{id}", a(h.HandleUnsubscribe))
 	mux.HandleFunc("GET /admin/dead-letters", a(h.HandleGetDeadLetters))
 	return mux
 }
@@ -399,35 +393,6 @@ func TestHandleAck(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
-	}
-}
-
-// --- Subscriptions ---
-
-func TestHandleSubscribeAndList(t *testing.T) {
-	h := newTestHandler(t)
-	mux := newMux(h)
-
-	req := authedReq(http.MethodPost, "/subscriptions", `{"topic":"orders"}`, "user1")
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("subscribe status = %d; body: %s", w.Code, w.Body.String())
-	}
-
-	req = authedReq(http.MethodGet, "/subscriptions", "", "user1")
-	w = httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("list status = %d; body: %s", w.Code, w.Body.String())
-	}
-	var resp map[string]interface{}
-	json.NewDecoder(w.Body).Decode(&resp)
-	subs := resp["subscriptions"].([]interface{})
-	if len(subs) != 1 {
-		t.Errorf("got %d subscriptions, want 1", len(subs))
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/hastenr/chatapi/internal/auth"
 	"github.com/hastenr/chatapi/internal/config"
 	"github.com/hastenr/chatapi/internal/models"
+	"github.com/hastenr/chatapi/internal/ratelimit"
 	"github.com/hastenr/chatapi/internal/services/bot"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
@@ -25,6 +26,7 @@ type Handler struct {
 	realtimeSvc *realtime.Service
 	deliverySvc *delivery.Service
 	botSvc      *bot.Service
+	msgLimiter  *ratelimit.Limiter // nil = disabled
 	jwtSecret   string
 	upgrader    websocket.Upgrader
 }
@@ -37,6 +39,7 @@ func NewHandler(
 	deliverySvc *delivery.Service,
 	botSvc *bot.Service,
 	cfg *config.Config,
+	msgLimiter *ratelimit.Limiter,
 ) *Handler {
 	allowedOrigins := cfg.AllowedOrigins
 
@@ -72,6 +75,7 @@ func NewHandler(
 		realtimeSvc: realtimeSvc,
 		deliverySvc: deliverySvc,
 		botSvc:      botSvc,
+		msgLimiter:  msgLimiter,
 		jwtSecret:   cfg.JWTSecret,
 		upgrader:    websocket.Upgrader{CheckOrigin: checkOrigin},
 	}
@@ -163,6 +167,17 @@ func (h *Handler) handleConnection(userID string, conn *websocket.Conn) {
 		var wsMsg models.WSMessage
 		if err := json.Unmarshal(message, &wsMsg); err != nil {
 			slog.Warn("Invalid WebSocket message", "user_id", userID, "error", err)
+			continue
+		}
+
+		if wsMsg.Type == "send_message" && h.msgLimiter != nil && !h.msgLimiter.Allow(userID) {
+			conn.WriteJSON(map[string]interface{}{
+				"type": "error",
+				"data": map[string]interface{}{
+					"code":    "rate_limited",
+					"message": "too many requests",
+				},
+			})
 			continue
 		}
 

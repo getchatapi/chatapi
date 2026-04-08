@@ -33,7 +33,7 @@ Common status codes: `400` invalid request, `401` missing/invalid token, `403` f
 GET /health
 ```
 
-No authentication required. Returns `503` if the database is not writable.
+No authentication required.
 
 ```json
 {"status": "ok", "db_writable": true}
@@ -77,7 +77,6 @@ Authorization: Bearer <token>
     {
       "room_id": "room_abc123",
       "type": "dm",
-      "unique_key": "dm:alice:bob",
       "name": null,
       "metadata": "{\"listing_id\":\"lst_99\"}",
       "last_seq": 42,
@@ -104,12 +103,14 @@ Content-Type: application/json
 }
 ```
 
-- `type`: `"dm"` | `"group"` | `"channel"` — required
+- `type`: `"dm"` | `"group"` — required
 - `members`: array of user IDs — required
 - `name`: optional display name
 - `metadata`: optional arbitrary JSON string for app-level context (listing IDs, order IDs, etc.)
 
-Returns `201` with the created room object. Returns `409` if a DM between those members already exists.
+DMs are deduplicated — creating a DM between the same two users always returns the same room.
+
+Returns `200` with the created room object.
 
 ### Get room
 
@@ -123,7 +124,7 @@ Returns the room object. `403` if the user is not a member.
 ### Update room
 
 ```http
-PUT /rooms/{room_id}
+PATCH /rooms/{room_id}
 Authorization: Bearer <token>
 Content-Type: application/json
 ```
@@ -136,15 +137,6 @@ Content-Type: application/json
 ```
 
 Both fields are optional. Omitting a field leaves it unchanged. Returns the updated room object.
-
-### Delete room
-
-```http
-DELETE /rooms/{room_id}
-Authorization: Bearer <token>
-```
-
-Returns `204 No Content`.
 
 ---
 
@@ -168,6 +160,8 @@ Authorization: Bearer <token>
 
 ### Add member
 
+Adds a user or bot to a room.
+
 ```http
 POST /rooms/{room_id}/members
 Authorization: Bearer <token>
@@ -178,16 +172,7 @@ Content-Type: application/json
 {"user_id": "charlie"}
 ```
 
-Returns `201` on success.
-
-### Remove member
-
-```http
-DELETE /rooms/{room_id}/members/{user_id}
-Authorization: Bearer <token>
-```
-
-Returns `204 No Content`.
+Returns `200` on success.
 
 ---
 
@@ -209,10 +194,11 @@ Query parameters:
   "messages": [
     {
       "message_id": "msg_abc123",
+      "chatroom_id": "room_abc123",
       "sender_id": "alice",
       "seq": 41,
       "content": "Hello!",
-      "meta": null,
+      "meta": "",
       "created_at": "2026-04-02T12:10:00Z"
     }
   ]
@@ -235,11 +221,9 @@ Content-Type: application/json
 ```
 
 - `content`: message text — required
-- `meta`: optional arbitrary JSON string (client-defined metadata, mentions, reactions, etc.)
+- `meta`: optional arbitrary JSON string (mentions, reactions, etc.)
 
-```json
-{"message_id": "msg_abc123", "seq": 43, "created_at": "2026-04-02T12:10:00Z"}
-```
+Returns `200` with the created message object.
 
 ### Edit message
 
@@ -288,87 +272,6 @@ Returns `200 OK`.
 
 ---
 
-## Notifications
-
-### Send notification
-
-```http
-POST /notify
-Authorization: Bearer <token>
-Content-Type: application/json
-```
-
-```json
-{
-  "topic": "order.shipped",
-  "payload": {"order_id": "12345", "tracking": "1Z999AA..."},
-  "targets": {
-    "user_ids": ["alice", "bob"],
-    "room_id": "room_abc123",
-    "topic_subscribers": true
-  }
-}
-```
-
-`targets` controls who receives the notification. All target fields are optional and can be combined. If `targets` is omitted, the notification is broadcast to all online users.
-
-```json
-{"notification_id": "notif_abc123", "created_at": "2026-04-02T12:15:00Z"}
-```
-
----
-
-## Notification Subscriptions
-
-### Subscribe to a topic
-
-```http
-POST /subscriptions
-Authorization: Bearer <token>
-Content-Type: application/json
-```
-
-```json
-{"topic": "order.shipped"}
-```
-
-Returns `201`:
-
-```json
-{
-  "id": 1,
-  "subscriber_id": "alice",
-  "topic": "order.shipped",
-  "created_at": "2026-04-02T12:00:00Z"
-}
-```
-
-### List subscriptions
-
-```http
-GET /subscriptions
-Authorization: Bearer <token>
-```
-
-```json
-{
-  "subscriptions": [
-    {"id": 1, "subscriber_id": "alice", "topic": "order.shipped", "created_at": "2026-04-02T12:00:00Z"}
-  ]
-}
-```
-
-### Unsubscribe
-
-```http
-DELETE /subscriptions/{id}
-Authorization: Bearer <token>
-```
-
-Returns `204 No Content`.
-
----
-
 ## Bots
 
 ### Register a bot
@@ -397,12 +300,12 @@ Fields:
 - `mode`: `"llm"` (ChatAPI calls the LLM) or `"external"` (bot connects via JWT like any user) — required
 - `provider`: `"openai"` or `"anthropic"` — required for `llm` mode
 - `base_url`: optional override for OpenAI-compatible endpoints (Ollama, Groq, LM Studio, etc.)
-- `model`: model ID (e.g. `"gpt-4o"`, `"claude-3-5-sonnet-20241022"`)
+- `model`: model ID (e.g. `"gpt-4o"`, `"claude-sonnet-4-6"`)
 - `api_key`: LLM provider API key
 - `system_prompt`: system message prepended to every LLM request
 - `max_context`: number of recent messages to include as context (default 20)
 
-Returns `201` with the created bot object (without `api_key`).
+Returns `200` with the created bot object (`api_key` is never returned).
 
 ### List bots
 
@@ -426,6 +329,35 @@ Authorization: Bearer <token>
 ```
 
 Returns `204 No Content`.
+
+---
+
+## Admin
+
+### Dead letters
+
+Returns undelivered messages that have exceeded the retry limit (5 attempts).
+
+```http
+GET /admin/dead-letters?limit=100
+Authorization: Bearer <token>
+```
+
+```json
+{
+  "failed_messages": [
+    {
+      "id": 1,
+      "user_id": "alice",
+      "chatroom_id": "room_abc123",
+      "message_id": "msg_abc123",
+      "seq": 41,
+      "attempts": 5,
+      "created_at": "2026-04-02T12:10:00Z"
+    }
+  ]
+}
+```
 
 ---
 

@@ -1,7 +1,6 @@
 package delivery
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync/atomic"
@@ -150,108 +149,10 @@ func (s *Service) DeliveryFailures() int64 {
 	return s.deliveryFailures.Load()
 }
 
-// ProcessNotifications processes pending notifications
-func (s *Service) ProcessNotifications(limit int) error {
-	if limit <= 0 || limit > 100 {
-		limit = 50
-	}
-	pending, err := s.repo.GetPendingNotifications(s.maxAttempts, limit)
-	if err != nil {
-		return fmt.Errorf("failed to get pending notifications: %w", err)
-	}
-	for i := range pending {
-		if err := s.attemptNotificationDelivery(&pending[i]); err != nil {
-			slog.Warn("Failed to deliver notification",
-				"notification_id", pending[i].NotificationID,
-				"topic", pending[i].Topic,
-				"attempts", pending[i].Attempts,
-				"error", err)
-		}
-	}
-	return nil
-}
-
-// DeliverNow immediately delivers a notification to online subscribers.
-func (s *Service) DeliverNow(notif *models.Notification) {
-	if err := s.attemptNotificationDelivery(notif); err != nil {
-		slog.Warn("Immediate notification delivery failed", "notification_id", notif.NotificationID, "error", err)
-	}
-}
-
-func (s *Service) attemptNotificationDelivery(notif *models.Notification) error {
-	payload := map[string]interface{}{
-		"type":            "notification",
-		"notification_id": notif.NotificationID,
-		"topic":           notif.Topic,
-		"payload":         notif.Payload,
-		"timestamp":       time.Now().Unix(),
-	}
-
-	for _, userID := range s.resolveRecipients(notif) {
-		s.realtimeSvc.SendToUser(userID, payload)
-	}
-	return s.repo.MarkNotificationDelivered(notif.NotificationID)
-}
-
-func (s *Service) resolveRecipients(notif *models.Notification) []string {
-	var targets models.NotificationTargets
-	if notif.Targets != "" {
-		if err := json.Unmarshal([]byte(notif.Targets), &targets); err != nil {
-			slog.Warn("Failed to parse notification targets, falling back to broadcast", "error", err)
-		}
-	}
-
-	seen := make(map[string]struct{})
-	var recipients []string
-	add := func(userID string) {
-		if _, ok := seen[userID]; !ok {
-			seen[userID] = struct{}{}
-			recipients = append(recipients, userID)
-		}
-	}
-
-	for _, uid := range targets.UserIDs {
-		add(uid)
-	}
-	if targets.RoomID != "" {
-		if members, err := s.chatroomSvc.GetRoomMembers(targets.RoomID); err == nil {
-			for _, m := range members {
-				add(m.UserID)
-			}
-		}
-	}
-	if targets.TopicSubscribers {
-		if subscribers, err := s.repo.GetTopicSubscribers(notif.Topic); err == nil {
-			for _, uid := range subscribers {
-				add(uid)
-			}
-		}
-	}
-
-	if len(recipients) == 0 {
-		return s.realtimeSvc.GetOnlineUsers()
-	}
-
-	online := make(map[string]struct{})
-	for _, uid := range s.realtimeSvc.GetOnlineUsers() {
-		online[uid] = struct{}{}
-	}
-	var onlineRecipients []string
-	for _, uid := range recipients {
-		if _, ok := online[uid]; ok {
-			onlineRecipients = append(onlineRecipients, uid)
-		}
-	}
-	return onlineRecipients
-}
-
 // CleanupOldEntries removes old delivered entries to prevent unbounded growth
 func (s *Service) CleanupOldEntries(maxAge time.Duration) error {
 	cutoff := time.Now().Add(-maxAge)
 	if err := s.repo.DeleteOldUndelivered(s.maxAttempts, cutoff); err != nil {
-		return err
-	}
-	if err := s.repo.DeleteOldNotifications(cutoff); err != nil {
 		return err
 	}
 	slog.Info("Cleaned up old delivery entries", "max_age", maxAge)

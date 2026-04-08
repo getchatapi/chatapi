@@ -202,40 +202,6 @@ components:
           description: Max messages to include in context window (default 20)
       required: [name, mode]
 
-    Notification:
-      type: object
-      properties:
-        notification_id:
-          type: string
-        topic:
-          type: string
-        payload:
-          type: object
-          additionalProperties: true
-        status:
-          type: string
-          enum: [pending, processing, delivered, failed, dead]
-        attempts:
-          type: integer
-        created_at:
-          type: string
-          format: date-time
-      required: [notification_id, topic, payload, status, attempts, created_at]
-
-    NotificationSubscription:
-      type: object
-      properties:
-        id:
-          type: integer
-        subscriber_id:
-          type: string
-        topic:
-          type: string
-        created_at:
-          type: string
-          format: date-time
-      required: [id, subscriber_id, topic, created_at]
-
     UndeliveredMessage:
       type: object
       properties:
@@ -640,106 +606,6 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /notify:
-    post:
-      summary: Send a durable notification
-      tags: [Notifications]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                topic:
-                  type: string
-                payload:
-                  type: object
-                  additionalProperties: true
-                targets:
-                  type: object
-                  properties:
-                    user_ids:
-                      type: array
-                      items:
-                        type: string
-                    room_id:
-                      type: string
-                    topic_subscribers:
-                      type: boolean
-                      description: Deliver to all subscribers of the topic
-              required: [topic, payload, targets]
-      responses:
-        "200":
-          description: Notification queued
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Notification"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-  /subscriptions:
-    get:
-      summary: List the current user's topic subscriptions
-      tags: [Notifications]
-      responses:
-        "200":
-          description: List of subscriptions
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/NotificationSubscription"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-    post:
-      summary: Subscribe to a notification topic
-      tags: [Notifications]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                topic:
-                  type: string
-              required: [topic]
-      responses:
-        "200":
-          description: Subscription created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/NotificationSubscription"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-  /subscriptions/{id}:
-    delete:
-      summary: Unsubscribe from a topic
-      tags: [Notifications]
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "204":
-          description: Unsubscribed
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
   /admin/dead-letters:
     get:
       summary: List failed (dead-letter) messages and notifications
@@ -763,9 +629,5 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/UndeliveredMessage"
-                  notifications:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/Notification"
         "401":
           $ref: "#/components/responses/Unauthorized"

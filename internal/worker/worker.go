@@ -55,9 +55,6 @@ func (w *DeliveryWorker) processBatch() {
 	if err := w.deliverySvc.ProcessUndeliveredMessages(50); err != nil {
 		slog.Error("Failed to process undelivered messages", "error", err)
 	}
-	if err := w.deliverySvc.ProcessNotifications(50); err != nil {
-		slog.Error("Failed to process notifications", "error", err)
-	}
 	if err := w.deliverySvc.CleanupOldEntries(30 * 24 * time.Hour); err != nil {
 		slog.Error("Failed to cleanup old entries", "error", err)
 	}

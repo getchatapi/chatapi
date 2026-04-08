@@ -43,20 +43,6 @@ type DeliveryRepository interface {
 	IncrementMessageAttempts(id int) error
 	GetMessageByID(messageID string) (*models.Message, error)
 	DeleteOldUndelivered(maxAttempts int, before time.Time) error
-	GetPendingNotifications(maxAttempts, limit int) ([]models.Notification, error)
-	MarkNotificationDelivered(notificationID string) error
-	DeleteOldNotifications(before time.Time) error
-	GetTopicSubscribers(topic string) ([]string, error)
-}
-
-// NotificationRepository handles notifications and subscriptions.
-type NotificationRepository interface {
-	Create(req *models.CreateNotificationRequest) (*models.Notification, error)
-	GetByID(notificationID string) (*models.Notification, error)
-	GetFailed(limit int) ([]*models.Notification, error)
-	Subscribe(subscriberID, topic string) (*models.NotificationSubscription, error)
-	Unsubscribe(subscriberID string, id int) error
-	ListSubscriptions(subscriberID string) ([]*models.NotificationSubscription, error)
 }
 
 // BotRepository handles bot registration.

@@ -6,16 +6,17 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/hastenr/chatapi/internal/auth"
 	"github.com/hastenr/chatapi/internal/config"
 	"github.com/hastenr/chatapi/internal/db"
 	"github.com/hastenr/chatapi/internal/handlers/rest"
 	"github.com/hastenr/chatapi/internal/handlers/ws"
+	"github.com/hastenr/chatapi/internal/ratelimit"
 	"github.com/hastenr/chatapi/internal/repository/sqlite"
 	"github.com/hastenr/chatapi/internal/services/bot"
 	"github.com/hastenr/chatapi/internal/services/chatroom"
 	"github.com/hastenr/chatapi/internal/services/delivery"
 	"github.com/hastenr/chatapi/internal/services/message"
-	"github.com/hastenr/chatapi/internal/services/notification"
 	"github.com/hastenr/chatapi/internal/services/realtime"
 	"github.com/hastenr/chatapi/internal/services/webhook"
 )
@@ -25,6 +26,7 @@ type Server struct {
 	httpServer  *http.Server
 	config      *config.Config
 	realtimeSvc *realtime.Service
+	msgLimiter  *ratelimit.Limiter
 }
 
 // NewServer creates and wires up the HTTP server
@@ -33,19 +35,26 @@ func NewServer(cfg *config.Config, database *db.DB, realtimeSvc *realtime.Servic
 	roomRepo := sqlite.NewRoomRepository(database.DB)
 	msgRepo := sqlite.NewMessageRepository(database.DB)
 	delivRepo := sqlite.NewDeliveryRepository(database.DB)
-	notifRepo := sqlite.NewNotificationRepository(database.DB)
 	botRepo := sqlite.NewBotRepository(database.DB)
 
 	// 2. Services (order matters — later services depend on earlier ones)
 	chatroomSvc := chatroom.NewService(roomRepo)
 	messageSvc := message.NewService(msgRepo)
-	notifSvc := notification.NewService(notifRepo)
 	webhookSvc := webhook.NewService()
 	deliverySvc := delivery.NewService(delivRepo, realtimeSvc, chatroomSvc, cfg.WebhookURL, cfg.WebhookSecret, webhookSvc)
 	botSvc := bot.NewService(botRepo, messageSvc, realtimeSvc, chatroomSvc, deliverySvc)
 
-	restHandler := rest.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, notifSvc, botSvc, database.DB, cfg)
-	wsHandler := ws.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, botSvc, cfg)
+	// Build the per-user message rate limiter (0 rps = disabled).
+	var msgLimiter *ratelimit.Limiter
+	if cfg.RateLimitMessages > 0 {
+		msgLimiter = ratelimit.New(cfg.RateLimitMessages, cfg.RateLimitMessagesBurst)
+		slog.Info("Message rate limiting enabled",
+			"rps", cfg.RateLimitMessages,
+			"burst", cfg.RateLimitMessagesBurst)
+	}
+
+	restHandler := rest.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, botSvc, database.DB, cfg)
+	wsHandler := ws.NewHandler(chatroomSvc, messageSvc, realtimeSvc, deliverySvc, botSvc, cfg, msgLimiter)
 
 	mux := http.NewServeMux()
 
@@ -62,15 +71,11 @@ func NewServer(cfg *config.Config, database *db.DB, realtimeSvc *realtime.Servic
 	protectedMux.HandleFunc("PATCH /rooms/{room_id}", restHandler.HandleUpdateRoom)
 	protectedMux.HandleFunc("GET /rooms/{room_id}/members", restHandler.HandleGetRoomMembers)
 	protectedMux.HandleFunc("POST /rooms/{room_id}/members", restHandler.HandleAddMember)
-	protectedMux.HandleFunc("POST /rooms/{room_id}/messages", restHandler.HandleSendMessage)
+	protectedMux.HandleFunc("POST /rooms/{room_id}/messages", rateLimited(msgLimiter, restHandler.HandleSendMessage))
 	protectedMux.HandleFunc("GET /rooms/{room_id}/messages", restHandler.HandleGetMessages)
 	protectedMux.HandleFunc("DELETE /rooms/{room_id}/messages/{message_id}", restHandler.HandleDeleteMessage)
 	protectedMux.HandleFunc("PUT /rooms/{room_id}/messages/{message_id}", restHandler.HandleEditMessage)
 	protectedMux.HandleFunc("POST /acks", restHandler.HandleAck)
-	protectedMux.HandleFunc("POST /notify", restHandler.HandleNotify)
-	protectedMux.HandleFunc("POST /subscriptions", restHandler.HandleSubscribe)
-	protectedMux.HandleFunc("GET /subscriptions", restHandler.HandleListSubscriptions)
-	protectedMux.HandleFunc("DELETE /subscriptions/{id}", restHandler.HandleUnsubscribe)
 	protectedMux.HandleFunc("GET /admin/dead-letters", restHandler.HandleGetDeadLetters)
 	protectedMux.HandleFunc("POST /bots", restHandler.HandleCreateBot)
 	protectedMux.HandleFunc("GET /bots", restHandler.HandleListBots)
@@ -93,6 +98,26 @@ func NewServer(cfg *config.Config, database *db.DB, realtimeSvc *realtime.Servic
 		httpServer:  httpServer,
 		config:      cfg,
 		realtimeSvc: realtimeSvc,
+		msgLimiter:  msgLimiter,
+	}
+}
+
+// rateLimited wraps a handler with per-user rate limiting. If limiter is nil
+// (rate limiting disabled) the handler is returned unchanged.
+func rateLimited(limiter *ratelimit.Limiter, next http.HandlerFunc) http.HandlerFunc {
+	if limiter == nil {
+		return next
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, _ := auth.UserIDFromContext(r.Context())
+		if userID != "" && !limiter.Allow(userID) {
+			w.Header().Set("Retry-After", "1")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			w.Write([]byte(`{"error":"rate_limited","message":"too many requests"}`))
+			return
+		}
+		next(w, r)
 	}
 }
 
@@ -149,6 +174,10 @@ func (s *Server) Shutdown() {
 
 	if err := s.realtimeSvc.Shutdown(ctx); err != nil {
 		slog.Error("Realtime service shutdown error", "error", err)
+	}
+
+	if s.msgLimiter != nil {
+		s.msgLimiter.Stop()
 	}
 
 	slog.Info("HTTP server shutdown complete")

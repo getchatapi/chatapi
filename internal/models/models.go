@@ -52,25 +52,6 @@ type UndeliveredMessage struct {
 	LastAttemptAt *time.Time `json:"last_attempt_at,omitempty" db:"last_attempt_at"`
 }
 
-// Notification represents a durable notification
-type Notification struct {
-	NotificationID string     `json:"notification_id" db:"notification_id"`
-	Topic          string     `json:"topic" db:"topic"`
-	Payload        string     `json:"payload" db:"payload"` // JSON payload
-	Targets        string     `json:"targets,omitempty" db:"targets"` // JSON-encoded NotificationTargets
-	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
-	Status         string     `json:"status" db:"status"` // pending, processing, delivered, failed, dead
-	Attempts       int        `json:"attempts" db:"attempts"`
-	LastAttemptAt  *time.Time `json:"last_attempt_at,omitempty" db:"last_attempt_at"`
-}
-
-// NotificationSubscription represents a subscription to notification topics
-type NotificationSubscription struct {
-	ID           int       `json:"id" db:"id"`
-	SubscriberID string    `json:"subscriber_id" db:"subscriber_id"`
-	Topic        string    `json:"topic" db:"topic"`
-	CreatedAt    time.Time `json:"created_at" db:"created_at"`
-}
 
 // Bot represents a registered AI bot participant
 type Bot struct {
@@ -135,19 +116,6 @@ type AckRequest struct {
 	Seq    int    `json:"seq"`
 }
 
-// CreateNotificationRequest represents a request to create a notification
-type CreateNotificationRequest struct {
-	Topic   string                 `json:"topic"`
-	Payload map[string]interface{} `json:"payload"`
-	Targets NotificationTargets    `json:"targets"`
-}
-
-// NotificationTargets specifies who should receive a notification
-type NotificationTargets struct {
-	UserIDs          []string `json:"user_ids,omitempty"`
-	RoomID           string   `json:"room_id,omitempty"`
-	TopicSubscribers bool     `json:"topic_subscribers,omitempty"`
-}
 
 // WSMessage represents a WebSocket message
 type WSMessage struct {
