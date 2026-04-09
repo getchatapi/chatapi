@@ -43,7 +43,7 @@ func newWSEnv(t *testing.T) *wsTestEnv {
 	realtimeSvc := realtime.NewService(roomRepo, cfg.MaxConnectionsPerUser)
 	webhookSvc := webhook.NewService()
 	deliverySvc := delivery.NewService(sqlite.NewDeliveryRepository(db.DB), realtimeSvc, chatroomSvc, "", "", webhookSvc)
-	botSvc := bot.NewService(sqlite.NewBotRepository(db.DB), messageSvc, realtimeSvc, chatroomSvc, deliverySvc)
+	botSvc := bot.NewService(sqlite.NewBotRepository(db.DB))
 
 	t.Cleanup(func() { realtimeSvc.Shutdown(context.Background()) })
 

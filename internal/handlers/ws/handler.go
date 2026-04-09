@@ -251,7 +251,6 @@ func (h *Handler) handleSendMessage(userID string, data interface{}) error {
 	h.realtimeSvc.BroadcastToRoom(roomID, broadcast)
 
 	go h.deliverySvc.HandleNewMessage(roomID, message)
-	go h.botSvc.TriggerBots(roomID, message)
 
 	return nil
 }

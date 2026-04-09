@@ -226,7 +226,6 @@ func (h *Handler) HandleSendMessage(w http.ResponseWriter, r *http.Request) {
 	h.realtimeSvc.BroadcastToRoom(roomID, broadcast)
 
 	go h.deliverySvc.HandleNewMessage(roomID, message)
-	go h.botSvc.TriggerBots(roomID, message)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(message)

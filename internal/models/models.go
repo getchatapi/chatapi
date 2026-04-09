@@ -53,30 +53,17 @@ type UndeliveredMessage struct {
 }
 
 
-// Bot represents a registered AI bot participant
+// Bot represents a registered AI bot participant.
+// Bots connect to rooms via JWT like any user; all LLM logic lives in your agent.
 type Bot struct {
-	BotID        string    `json:"bot_id"`
-	Name         string    `json:"name"`
-	Mode         string    `json:"mode"`                   // "llm" | "external"
-	Provider     string    `json:"provider,omitempty"`     // "openai" | "anthropic"
-	BaseURL      string    `json:"base_url,omitempty"`     // override for openai-compatible endpoints
-	Model        string    `json:"model,omitempty"`
-	APIKey       string    `json:"-"`                      // never serialized
-	SystemPrompt string    `json:"system_prompt,omitempty"`
-	MaxContext   int       `json:"max_context"`
-	CreatedAt    time.Time `json:"created_at"`
+	BotID     string    `json:"bot_id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // CreateBotRequest represents a request to register a bot
 type CreateBotRequest struct {
-	Name         string `json:"name"`
-	Mode         string `json:"mode"`          // "llm" | "external"
-	Provider     string `json:"provider"`      // "openai" | "anthropic"
-	BaseURL      string `json:"base_url"`      // optional, for openai-compatible endpoints
-	Model        string `json:"model"`
-	APIKey       string `json:"api_key"`
-	SystemPrompt string `json:"system_prompt"`
-	MaxContext   int    `json:"max_context"`   // 0 defaults to 20
+	Name string `json:"name"`
 }
 
 // AddMemberRequest represents a request to add a member to a room
