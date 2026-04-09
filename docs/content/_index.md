@@ -6,20 +6,21 @@ weight = 1
 
 # ChatAPI
 
-Self-hosted, open-source chat infrastructure for AI-powered apps. Single binary, SQLite, JWT auth. Think self-hosted Sendbird or Stream Chat — but designed for apps where one or more participants is an AI.
+The messaging layer for apps where AI is a participant. Single binary, self-hosted, open source.
 
-## Key Features
+Building an app where users talk to an AI? ChatAPI gives you real-time WebSocket rooms, LLM streaming built into the messaging layer, and AI bots that join rooms like any other user — without managing a complex infrastructure stack.
 
-- **AI Bots** — Register LLM-backed bots (OpenAI, Anthropic, or any OpenAI-compatible endpoint). ChatAPI handles context windowing, streaming, and delivery. Bots can also run externally and connect like any other user.
-- **LLM Streaming** — Token-by-token streaming over WebSocket via `message.stream.start` / `message.stream.delta` / `message.stream.end` events.
-- **JWT Auth** — Your backend signs JWTs with `JWT_SECRET`. ChatAPI validates them. No API keys, no sessions, no admin credentials required at runtime.
-- **Real-time Messaging** — WebSocket connections with typing indicators, presence, and at-least-once delivery guarantees.
-- **Message Sequencing** — Per-room ordered sequences with per-user ACK tracking and automatic retry for offline users.
-- **Webhook** — Calls your backend when a message arrives for an offline user, so you can send push notifications, email, or SMS.
-- **Room Metadata** — Attach arbitrary JSON to rooms (listing IDs, order IDs, support ticket numbers, etc.).
-- **Room Types** — DMs and groups.
-- **Portable Architecture** — Repository and broker interfaces let you swap SQLite → PostgreSQL or local pub/sub → Redis without changing business logic.
-- **Single Binary** — No external dependencies at runtime. SQLite with WAL mode included.
+## Features
+
+- **AI bots as first-class participants** — register a bot with a model and API key, add it to any room. ChatAPI handles context windowing, streaming, and delivery. Bots can also run externally and connect over REST or WebSocket like any other user.
+- **LLM streaming** — token-by-token responses over WebSocket via `message.stream.start` / `message.stream.delta` / `message.stream.end`. Works with OpenAI, Anthropic, Ollama, or any OpenAI-compatible endpoint.
+- **Real-time messaging** — WebSocket connections with typing indicators, presence, and at-least-once delivery guarantees.
+- **JWT auth** — your backend signs JWTs with `JWT_SECRET`. ChatAPI validates them. No API keys, no sessions, no admin credentials required at runtime.
+- **Durable delivery** — per-room ordered sequences with per-user ACK tracking and automatic retry for offline users.
+- **Webhook** — calls your backend when a message arrives for an offline user, so you can trigger push notifications, email, or SMS.
+- **Room metadata** — attach arbitrary JSON to rooms (listing IDs, order IDs, support ticket numbers, etc.).
+- **Portable architecture** — repository and broker interfaces let you swap SQLite → PostgreSQL or local pub/sub → Redis without changing business logic.
+- **Single binary** — no external dependencies at runtime. SQLite with WAL mode included.
 
 ## Quick Start
 
@@ -33,13 +34,8 @@ Self-hosted, open-source chat infrastructure for AI-powered apps. Single binary,
 ```bash
 git clone https://github.com/hastenr/chatapi.git
 cd chatapi
-go mod download
-go build -o bin/chatapi ./cmd/chatapi
-
-export JWT_SECRET=$(openssl rand -base64 32)
-export LISTEN_ADDR=":8080"
-export ALLOWED_ORIGINS="*"
-./bin/chatapi
+cp .env.example .env   # set JWT_SECRET
+go run ./cmd/chatapi
 ```
 
 ### Run with Docker
@@ -59,7 +55,6 @@ docker run -d \
 Your backend mints JWTs signed with `JWT_SECRET`. The `sub` claim is the user ID.
 
 ```bash
-# Example: sign a token with jwt-cli or any JWT library
 TOKEN="<your-signed-jwt>"
 
 # Create a room
@@ -68,7 +63,7 @@ curl -X POST http://localhost:8080/rooms \
   -H "Content-Type: application/json" \
   -d '{"type": "dm", "members": ["alice", "bob"]}'
 
-# Connect WebSocket (browser)
+# Connect via WebSocket
 # ws://localhost:8080/ws?token=<jwt>
 ```
 

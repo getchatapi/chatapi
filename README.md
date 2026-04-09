@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  Self-hosted chat infrastructure for AI-powered apps.
+  The messaging layer for apps where AI is a participant.
 </p>
 
 <p align="center">
@@ -22,18 +22,17 @@
 
 ---
 
-A single binary that gives your app real-time messaging, AI bot participants, and LLM streaming — without Sendbird's per-MAU pricing or handing your conversation data to a third party.
+Building an app where users talk to an AI? ChatAPI is the messaging infrastructure that makes it work — real-time WebSocket rooms, LLM streaming built in, and AI bots that participate like any other user. Single binary, self-hosted, open source.
 
 ## Features
 
-- **Real-time WebSocket messaging** — DM and group rooms with presence and typing indicators
-- **AI bots as first-class participants** — add a bot to any room like a regular user
-- **LLM streaming** — token-by-token streaming over WebSocket (`message.stream.*`)
-- **Works with any LLM** — OpenAI, Anthropic, Ollama, or any OpenAI-compatible endpoint
-- **Durable delivery** — store-then-send with retry; webhook fires when a user is offline so you can send push notifications
-- **JWT auth** — your backend signs tokens, ChatAPI validates them. No API keys, no sessions
+- **AI bots as first-class participants** — register a bot with a model and API key, add it to any room. ChatAPI handles context, streaming, and delivery.
+- **LLM streaming** — token-by-token responses over WebSocket (`message.stream.*`). Works with OpenAI, Anthropic, Ollama, or any OpenAI-compatible endpoint.
+- **Real-time messaging** — DM and group rooms with presence, typing indicators, and at-least-once delivery.
+- **JWT auth** — your backend signs tokens, ChatAPI validates them. No API keys, no sessions.
+- **Webhook for offline users** — when a message arrives for an offline user, ChatAPI calls your endpoint so you can send push notifications.
 - **TypeScript SDK** — `npm install @hastenr/chatapi-sdk`
-- **Portable by design** — swap SQLite → PostgreSQL or local pub/sub → Redis without touching business logic
+- **Portable by design** — swap SQLite → PostgreSQL or local pub/sub → Redis without touching business logic.
 
 ## Quick Start
 
@@ -75,19 +74,9 @@ Your AI agent (any LLM / framework)
       End user
 ```
 
-**LLM bots (built-in)** — register a bot with a model and API key, add it to a room. ChatAPI calls the LLM, injects conversation history as context, and streams the reply.
+**Built-in bots** — register a bot with a model and API key. ChatAPI calls the LLM, injects conversation history as context, and streams the reply back into the room.
 
-**External bots** — any process joins a room via JWT, just like a user. Your agent handles all the logic over REST or WebSocket.
-
-## Why ChatAPI
-
-| | ChatAPI | Stream / Sendbird | Roll your own |
-|---|---|---|---|
-| Self-hosted | ✓ | ✗ | ✓ |
-| AI bots native | ✓ | Add-on | You build it |
-| LLM streaming | ✓ | ✗ | You build it |
-| Open source | ✓ | ✗ | N/A |
-| Per-MAU pricing | Free | Expensive | Infra cost |
+**External bots** — any process can join a room via JWT, just like a regular user. Your agent handles all the logic over REST or WebSocket.
 
 ## Deploy
 
