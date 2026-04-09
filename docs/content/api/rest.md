@@ -283,29 +283,20 @@ Content-Type: application/json
 ```
 
 ```json
-{
-  "name": "Support Bot",
-  "mode": "llm",
-  "provider": "openai",
-  "base_url": "https://api.openai.com/v1",
-  "model": "gpt-4o",
-  "api_key": "sk-...",
-  "system_prompt": "You are a helpful support agent.",
-  "max_context": 20
-}
+{"name": "Support Bot"}
 ```
 
-Fields:
 - `name`: display name — required
-- `mode`: `"llm"` (ChatAPI calls the LLM) or `"external"` (bot connects via JWT like any user) — required
-- `provider`: `"openai"` or `"anthropic"` — required for `llm` mode
-- `base_url`: optional override for OpenAI-compatible endpoints (Ollama, Groq, LM Studio, etc.)
-- `model`: model ID (e.g. `"gpt-4o"`, `"claude-sonnet-4-6"`)
-- `api_key`: LLM provider API key
-- `system_prompt`: system message prepended to every LLM request
-- `max_context`: number of recent messages to include as context (default 20)
 
-Returns `200` with the created bot object (`api_key` is never returned).
+Returns `200` with the created bot object:
+
+```json
+{
+  "bot_id": "bot_abc123",
+  "name": "Support Bot",
+  "created_at": "2026-04-02T12:00:00Z"
+}
+```
 
 ### List bots
 

@@ -12,7 +12,7 @@ Drop-in WebSocket rooms with LLM streaming baked into the messaging layer — no
 
 ## Features
 
-- **AI bots as first-class participants** — register a bot with a model and API key, add it to any room. ChatAPI handles context windowing, streaming, and delivery. Bots can also run externally and connect over REST or WebSocket like any other user.
+- **AI bots as first-class participants** — register a bot to get a stable identity, add it to any room. Your agent connects via JWT like any user and handles all the logic — any LLM, any framework.
 - **LLM streaming** — token-by-token responses over WebSocket via `message.stream.start` / `message.stream.delta` / `message.stream.end`. Works with OpenAI, Anthropic, Ollama, or any OpenAI-compatible endpoint.
 - **Real-time messaging** — WebSocket connections with typing indicators, presence, and at-least-once delivery guarantees.
 - **JWT auth** — your backend signs JWTs with `JWT_SECRET`. ChatAPI validates them. No API keys, no sessions, no admin credentials required at runtime.

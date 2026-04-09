@@ -158,49 +158,18 @@ components:
           type: string
         name:
           type: string
-        mode:
-          type: string
-          enum: [llm, external]
-        provider:
-          type: string
-          enum: [openai, anthropic]
-        base_url:
-          type: string
-        model:
-          type: string
-        system_prompt:
-          type: string
-        max_context:
-          type: integer
         created_at:
           type: string
           format: date-time
-      required: [bot_id, name, mode, max_context, created_at]
+      required: [bot_id, name, created_at]
 
     CreateBotRequest:
       type: object
       properties:
         name:
           type: string
-        mode:
-          type: string
-          enum: [llm, external]
-        provider:
-          type: string
-          enum: [openai, anthropic]
-        base_url:
-          type: string
-          description: Optional override for OpenAI-compatible endpoints
-        model:
-          type: string
-        api_key:
-          type: string
-        system_prompt:
-          type: string
-        max_context:
-          type: integer
-          description: Max messages to include in context window (default 20)
-      required: [name, mode]
+          description: Display name for the bot
+      required: [name]
 
     UndeliveredMessage:
       type: object
