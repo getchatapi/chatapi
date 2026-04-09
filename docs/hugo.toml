@@ -12,6 +12,7 @@ theme = 'hugo-book'
   BookCommitPath = 'commit'
   BookEditPath = 'edit/main/docs'
   BookDateFormat = 'January 2, 2006'
+  BookLogo = '/logo.svg'
   BookSearch = true
   BookComments = false
   BookPortableLinks = true

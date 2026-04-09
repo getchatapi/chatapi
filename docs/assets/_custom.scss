@@ -44,9 +44,7 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--color-navy);
 }
 
-h1 { font-size: 2rem;   margin-top: 0; }
-h2 { font-size: 1.4rem; margin-top: 2.5rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--color-border); }
-h3 { font-size: 1.15rem; margin-top: 2rem; }
+h2 { border-bottom: 1px solid var(--color-border); }
 
 // ── Links ────────────────────────────────────────────────────────────────────
 
@@ -64,20 +62,10 @@ a {
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
 .book-menu {
-  background: var(--color-navy) !important;
   border-right: none !important;
 
-  nav {
-    padding: 1.5rem 1rem;
-  }
-
   a {
-    color: #b0bec5 !important;
-    font-size: 0.875rem;
-    font-weight: 500;
-    padding: 0.3rem 0.75rem;
-    border-radius: 6px;
-    display: block;
+    color: inherit !important;
 
     &:hover {
       color: var(--color-green) !important;
@@ -91,36 +79,18 @@ a {
     }
   }
 
-  // Section headers in sidebar
   strong {
     color: #889397;
-    font-size: 0.7rem;
-    font-weight: 600;
-    letter-spacing: 0.08em;
     text-transform: uppercase;
-    padding: 1rem 0.75rem 0.25rem;
-    display: block;
+    letter-spacing: 0.08em;
   }
 }
 
 // Brand / logo area
 .book-brand {
-  background: var(--color-navy) !important;
-  border-bottom: 1px solid rgba(255,255,255,0.06) !important;
-  padding: 1.25rem 1rem !important;
-
   a {
-    font-family: var(--font-sans) !important;
-    font-size: 1.25rem !important;
-    font-weight: 700 !important;
-    color: #fff !important;
-    letter-spacing: -0.03em;
-
-    &:hover {
-      text-decoration: none !important;
-    }
-
-    span { color: var(--color-green); }
+    &:hover { text-decoration: none !important; }
+    span { display: none; } // logo SVG already contains the name
   }
 
   img {
@@ -129,17 +99,17 @@ a {
   }
 }
 
+// ── Layout ────────────────────────────────────────────────────────────────────
+
+.container {
+  max-width: 100% !important;
+}
+
 // ── Header / top nav ──────────────────────────────────────────────────────────
 
 .book-header {
   background: #fff !important;
   border-bottom: 1px solid var(--color-border) !important;
-}
-
-// ── Content area ─────────────────────────────────────────────────────────────
-
-.book-page {
-  padding: 2rem 2.5rem;
 }
 
 // ── Code blocks ──────────────────────────────────────────────────────────────
@@ -174,11 +144,6 @@ pre {
 // ── Tables ───────────────────────────────────────────────────────────────────
 
 table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.875rem;
-  margin: 1.5rem 0;
-
   th {
     background: var(--color-navy);
     color: var(--color-green);
@@ -191,9 +156,7 @@ table {
   }
 
   td {
-    padding: 0.65rem 1rem;
     border-bottom: 1px solid var(--color-border);
-    vertical-align: top;
   }
 
   tr:last-child td {
@@ -210,19 +173,9 @@ table {
 blockquote {
   border-left: 3px solid var(--color-green) !important;
   background: #f0fdf4;
-  margin: 1.5rem 0;
-  padding: 0.75rem 1.25rem;
   border-radius: 0 6px 6px 0;
   color: #374151;
   font-style: normal !important;
-}
-
-// ── Horizontal rules ──────────────────────────────────────────────────────────
-
-hr {
-  border: none;
-  border-top: 1px solid var(--color-border);
-  margin: 2.5rem 0;
 }
 
 // ── TOC ──────────────────────────────────────────────────────────────────────
@@ -248,19 +201,11 @@ hr {
 // ── Search ───────────────────────────────────────────────────────────────────
 
 .book-search input {
-  border: 1px solid rgba(255,255,255,0.12) !important;
-  background: rgba(255,255,255,0.06) !important;
-  color: #fff !important;
   border-radius: 6px !important;
   font-family: var(--font-sans) !important;
-  font-size: 0.8rem !important;
-
-  &::placeholder {
-    color: #889397 !important;
-  }
 
   &:focus {
-    border-color: var(--color-green) !important;
+    border-color: var(--color-green-dark) !important;
     outline: none !important;
     box-shadow: 0 0 0 2px rgba(0, 237, 100, 0.15) !important;
   }
