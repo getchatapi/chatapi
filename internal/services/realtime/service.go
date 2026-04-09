@@ -83,7 +83,13 @@ func (s *Service) UnregisterConnection(userID string, conn *websocket.Conn) {
 
 	if len(s.connections[userID]) == 0 {
 		delete(s.connections, userID)
+		shutdownCh := s.shutdownCh
 		time.AfterFunc(5*time.Second, func() {
+			select {
+			case <-shutdownCh:
+				return // service shut down, skip broadcast
+			default:
+			}
 			broadcast := false
 			s.mu.Lock()
 			if presenceTime, exists := s.presence[userID]; exists {
