@@ -25,7 +25,7 @@ Self-hosted, open-source chat infrastructure for AI-powered apps. Single binary,
 
 ### Prerequisites
 
-- Go 1.25+
+- Go 1.22+
 - `JWT_SECRET` environment variable (required — server will not start without it)
 
 ### Run from source

@@ -25,7 +25,7 @@ theme = 'hugo-book'
   BookMenuBundle = '/menu'
 
   # ChatAPI specific configuration
-  description = "A lightweight, multitenant chat service built in Go with SQLite, WebSocket support, and durable message delivery"
+  description = "Self-hosted chat infrastructure for AI-powered apps. Single binary, SQLite, JWT auth."
   author = "ChatAPI Team"
 
 [menu]
