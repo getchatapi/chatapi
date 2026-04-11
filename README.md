@@ -42,9 +42,10 @@ Your agent is a normal process. It connects to ChatAPI with a JWT, receives mess
 
 ## Features
 
+- **Managed AI bots** — register a bot with your LLM provider URL and a webhook; ChatAPI calls the model, streams tokens back, and stores the reply. No agent process to build or host.
+- **External bot support** — prefer full control? Connect your own agent via JWT and handle any LLM or pipeline you like.
 - **Real-time WebSocket messaging** — DM and group rooms with presence, typing indicators, and at-least-once delivery guarantees
 - **LLM streaming** — token-by-token responses over WebSocket via `message.stream.*` events
-- **AI bots as first-class participants** — bots join rooms like users; your agent controls all the logic
 - **JWT auth** — your backend signs tokens, ChatAPI validates them. No API keys, no sessions, no vendor accounts
 - **Webhook for offline delivery** — ChatAPI calls your endpoint when a message arrives for an offline user, so you can trigger push notifications
 - **TypeScript SDK** — `npm install @hastenr/chatapi-sdk`
@@ -76,39 +77,55 @@ cp .env.example .env    # set JWT_SECRET
 go run ./cmd/chatapi
 ```
 
-## Connect your agent in 5 minutes
+## Add an AI bot in 5 minutes
 
-**1. Register a bot**
+### Option A — Managed bot (no agent process)
+
+Set your LLM API key on the server, register the bot, add it to a room. Done.
 
 ```bash
-TOKEN="<jwt signed with your JWT_SECRET>"
+# 1. Set the API key on the server (key never touches the database)
+export GEMINI_API_KEY=AIza...
 
+# 2. Register the bot
 curl -X POST http://localhost:8080/bots \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name": "Support Bot"}'
+  -d '{
+    "name": "Support Bot",
+    "llm_base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+    "llm_api_key_env": "GEMINI_API_KEY",
+    "model": "gemini-2.0-flash",
+    "system_prompt_webhook": "https://yourapp.com/api/system-prompt"
+  }'
 # {"bot_id": "bot_abc123", ...}
-```
 
-**2. Add the bot to a room**
-
-```bash
+# 3. Add to a room
 curl -X POST http://localhost:8080/rooms/room_123/members \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"user_id": "bot_abc123"}'
 ```
 
-**3. Connect your agent**
+The bot now responds to every message in that room. ChatAPI calls your `system_prompt_webhook` before each LLM request — your app returns the system prompt (with RAG context, customer data, whatever you need):
+
+```json
+POST https://yourapp.com/api/system-prompt
+← { "system_prompt": "You are a support agent. Relevant docs: ..." }
+```
+
+Works with any OpenAI-compatible provider — Gemini, OpenAI, Ollama, OpenRouter.
+
+### Option B — External agent (full control)
+
+Connect your own process. Use any LLM, any framework, any pipeline.
 
 ```javascript
-// Mint a JWT with sub = bot_abc123, connect like any user
 const ws = new WebSocket(`wss://your-server/ws?token=${botJWT}`);
 
 ws.onmessage = async (event) => {
   const msg = JSON.parse(event.data);
   if (msg.type !== "message") return;
 
-  // Call your LLM, run RAG, do whatever you need
   const reply = await callYourPipeline(msg.content);
 
   ws.send(JSON.stringify({

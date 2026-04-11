@@ -7,7 +7,7 @@ weight: 10
 
 ## Prerequisites
 
-- Go 1.25+
+- Go 1.22+
 - CGO-enabled build toolchain (for the SQLite driver)
 
 ## Installation
@@ -45,6 +45,7 @@ cp .env.example .env
 | `DATABASE_DSN` | `file:./chatapi.db` | SQLite connection string. Use an absolute path in Docker. |
 | `RATE_LIMIT_MESSAGES` | `10` | Sustained message sends per second per user. Set to `0` to disable. |
 | `RATE_LIMIT_MESSAGES_BURST` | `20` | Burst allowance on top of the sustained rate. |
+| `GEMINI_API_KEY` / `OPENAI_API_KEY` / … | *(none)* | LLM API keys referenced by managed bots via `llm_api_key_env`. Name the variable whatever you like — the bot config stores only the variable name, not the key. |
 
 ## Start the server
 

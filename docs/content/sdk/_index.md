@@ -187,25 +187,59 @@ client.off('message');           // remove all handlers for this event
 
 ## Bots
 
+**Managed** — ChatAPI calls the LLM and streams the response. No agent process required.
+
 ```typescript
-// Register an LLM bot
+// Register a managed bot.
+// The API key lives in an env var on the ChatAPI server — never passed here.
 const bot = await client.bots.create({
   name: 'Support Bot',
-  mode: 'llm',
-  provider: 'openai',
-  model: 'gpt-4o',
-  api_key: 'sk-...',
-  system_prompt: 'You are a helpful support agent. Be concise.',
-  max_context: 20,
+  llm_base_url: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+  llm_api_key_env: 'GEMINI_API_KEY',
+  model: 'gemini-2.0-flash',
+  system_prompt_webhook: 'https://yourapp.com/api/chatapi/system-prompt',
 });
 
-// Add the bot to a room
+// Add the bot to a room — it responds automatically to every message
 await client.rooms.addMember('room_abc123', bot.bot_id);
+```
 
-// List / get / delete
+**External** — your agent process connects via JWT.
+
+```typescript
+const bot = await client.bots.create({ name: 'My Agent' });
+// Mint a JWT with sub = bot.bot_id and connect via WebSocket
+```
+
+**List / get / delete**
+
+```typescript
 const bots = await client.bots.list();
-const b = await client.bots.get(bot.bot_id);
+const b    = await client.bots.get(bot.bot_id);
 await client.bots.delete(bot.bot_id);
+```
+
+**Listen for bot responses**
+
+```typescript
+const pending = new Map<string, string>();
+
+client.on('message.stream.start', (e) => {
+  pending.set(e.message_id, '');
+});
+
+client.on('message.stream.delta', (e) => {
+  pending.set(e.message_id, (pending.get(e.message_id) ?? '') + e.delta);
+});
+
+client.on('message.stream.end', (e) => {
+  pending.delete(e.message_id);
+  console.log('Bot reply:', e.content, '(seq', e.seq, ')');
+});
+
+client.on('message.stream.error', (e) => {
+  pending.delete(e.message_id); // discard partial content
+});
 ```
 
 ---
