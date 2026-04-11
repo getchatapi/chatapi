@@ -5,22 +5,15 @@ weight: 11
 
 # AI Bots
 
-A bot in ChatAPI is a named identity with a stable `bot_id`. It can operate in two modes:
-
-| Mode | How it works |
-|---|---|
-| **Managed** | Set `llm_base_url` when registering. ChatAPI calls the LLM, streams the response, and stores the message. No agent process required. |
-| **External** | No LLM config. Your agent process connects via JWT and handles everything itself. |
-
-Both modes use the same room membership and streaming event protocol.
+A bot in ChatAPI is an AI participant registered with an LLM provider. When a user sends a message in a room the bot belongs to, ChatAPI calls the LLM, streams the response back via `message.stream.*` events, and stores the final message. No agent process required.
 
 ---
 
-## Managed bots
+## Setup
 
 ### 1. Set the API key on the server
 
-The key lives in an environment variable on the ChatAPI server — never in the database:
+The key lives in an environment variable — never in the database:
 
 ```env
 GEMINI_API_KEY=AIza...
@@ -50,8 +43,6 @@ curl -X POST http://localhost:8080/bots \
   }'
 ```
 
-Fields:
-
 | Field | Required | Description |
 |---|---|---|
 | `name` | Yes | Display name |
@@ -69,7 +60,7 @@ curl -X POST http://localhost:8080/rooms/room_abc123/members \
   -d '{"user_id": "bot_abc123"}'
 ```
 
-That's it. The bot now responds to every message sent in the room.
+The bot now responds to every message sent in that room.
 
 ---
 
@@ -118,9 +109,8 @@ ChatAPI uses `system_prompt` as the `system` message at the top of the LLM messa
 ```typescript
 // app/api/chatapi/system-prompt/route.ts
 export async function POST(req: Request) {
-  const { bot_id, room_id, message, history } = await req.json();
+  const { message, history } = await req.json();
 
-  // Retrieve context relevant to the user's message
   const docs = await vectorSearch(message.content);
   const customer = await db.customers.findByUserId(message.sender_id);
 
@@ -135,54 +125,22 @@ ${docs.map(d => d.content).join('\n\n')}`,
 }
 ```
 
-Your RAG pipeline, prompt engineering, and personalisation all live here. Swap your vector store or model without touching ChatAPI.
+Your RAG pipeline, prompt engineering, and personalisation all live here. ChatAPI is the transport layer — your app is the brain.
 
 ---
 
 ## Streaming events
 
-When a managed bot responds, clients receive:
+When a bot responds, clients receive:
 
-```
-message.stream.start  → bot has started responding
-message.stream.delta  → one token chunk (repeat until done)
-message.stream.end    → stream complete, message persisted with seq
-message.stream.error  → LLM call failed (discard any partial content)
-```
+| Event | Description |
+|---|---|
+| `message.stream.start` | Bot has started responding |
+| `message.stream.delta` | One token chunk (repeats until done) |
+| `message.stream.end` | Stream complete — message persisted with `seq` |
+| `message.stream.error` | LLM call failed — discard any partial content |
 
 See [WebSocket API](/api/websocket/) for the full event schema.
-
----
-
-## External bots
-
-If you want full control — your own agent process, custom retry logic, multi-step reasoning, tool calls — register a bot without LLM config:
-
-```bash
-curl -X POST http://localhost:8080/bots \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"name": "My Agent"}'
-# {"bot_id": "bot_abc123", ...}
-```
-
-Your agent mints a JWT with `sub: "bot_abc123"` and connects to ChatAPI over WebSocket:
-
-```javascript
-const botJWT = signJWT({ sub: 'bot_abc123' }, process.env.JWT_SECRET);
-const ws = new WebSocket(`wss://your-chatapi.com/ws?token=${botJWT}`);
-
-ws.onmessage = async (event) => {
-  const msg = JSON.parse(event.data);
-  if (msg.type !== 'message' || msg.sender_id === 'bot_abc123') return;
-
-  const reply = await callYourLLMPipeline(msg.content);
-
-  ws.send(JSON.stringify({
-    type: 'send_message',
-    data: { room_id: msg.room_id, content: reply },
-  }));
-};
-```
 
 ---
 

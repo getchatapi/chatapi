@@ -15,12 +15,22 @@ func newBotSvc(t *testing.T) *bot.Service {
 	return bot.NewService(sqlite.NewBotRepository(db.DB), sqlite.NewMessageRepository(db.DB))
 }
 
+// testBotReq returns a valid CreateBotRequest with the given name.
+func testBotReq(name string) *models.CreateBotRequest {
+	return &models.CreateBotRequest{
+		Name:         name,
+		LLMBaseURL:   "https://api.openai.com/v1",
+		LLMAPIKeyEnv: "OPENAI_API_KEY",
+		Model:        "gpt-4o",
+	}
+}
+
 // --- CreateBot ---
 
 func TestCreateBot(t *testing.T) {
 	svc := newBotSvc(t)
 
-	b, err := svc.CreateBot(&models.CreateBotRequest{Name: "Helpful Bot"})
+	b, err := svc.CreateBot(testBotReq("Helpful Bot"))
 	if err != nil {
 		t.Fatalf("CreateBot: %v", err)
 	}
@@ -35,9 +45,43 @@ func TestCreateBot(t *testing.T) {
 func TestCreateBot_MissingName(t *testing.T) {
 	svc := newBotSvc(t)
 
-	_, err := svc.CreateBot(&models.CreateBotRequest{})
+	req := testBotReq("")
+	_, err := svc.CreateBot(req)
 	if err == nil {
 		t.Error("expected error for missing name, got nil")
+	}
+}
+
+func TestCreateBot_MissingLLMBaseURL(t *testing.T) {
+	svc := newBotSvc(t)
+
+	req := testBotReq("Bot")
+	req.LLMBaseURL = ""
+	_, err := svc.CreateBot(req)
+	if err == nil {
+		t.Error("expected error for missing llm_base_url, got nil")
+	}
+}
+
+func TestCreateBot_MissingAPIKeyEnv(t *testing.T) {
+	svc := newBotSvc(t)
+
+	req := testBotReq("Bot")
+	req.LLMAPIKeyEnv = ""
+	_, err := svc.CreateBot(req)
+	if err == nil {
+		t.Error("expected error for missing llm_api_key_env, got nil")
+	}
+}
+
+func TestCreateBot_MissingModel(t *testing.T) {
+	svc := newBotSvc(t)
+
+	req := testBotReq("Bot")
+	req.Model = ""
+	_, err := svc.CreateBot(req)
+	if err == nil {
+		t.Error("expected error for missing model, got nil")
 	}
 }
 
@@ -46,7 +90,10 @@ func TestCreateBot_MissingName(t *testing.T) {
 func TestGetBot_Found(t *testing.T) {
 	svc := newBotSvc(t)
 
-	created, _ := svc.CreateBot(&models.CreateBotRequest{Name: "Finder Bot"})
+	created, err := svc.CreateBot(testBotReq("Finder Bot"))
+	if err != nil {
+		t.Fatalf("CreateBot: %v", err)
+	}
 
 	got, err := svc.GetBot(created.BotID)
 	if err != nil {
@@ -87,7 +134,7 @@ func TestListBots_Multiple(t *testing.T) {
 	svc := newBotSvc(t)
 
 	for i := 0; i < 3; i++ {
-		svc.CreateBot(&models.CreateBotRequest{Name: "Bot"})
+		svc.CreateBot(testBotReq("Bot"))
 	}
 
 	bots, err := svc.ListBots()
@@ -104,13 +151,16 @@ func TestListBots_Multiple(t *testing.T) {
 func TestDeleteBot_Existing(t *testing.T) {
 	svc := newBotSvc(t)
 
-	b, _ := svc.CreateBot(&models.CreateBotRequest{Name: "Delete Me"})
+	b, err := svc.CreateBot(testBotReq("Delete Me"))
+	if err != nil {
+		t.Fatalf("CreateBot: %v", err)
+	}
 
 	if err := svc.DeleteBot(b.BotID); err != nil {
 		t.Fatalf("DeleteBot: %v", err)
 	}
 
-	_, err := svc.GetBot(b.BotID)
+	_, err = svc.GetBot(b.BotID)
 	if err == nil {
 		t.Error("expected bot to be gone after delete, but GetBot succeeded")
 	}
@@ -129,7 +179,10 @@ func TestDeleteBot_NotFound(t *testing.T) {
 func TestIsBot_True(t *testing.T) {
 	svc := newBotSvc(t)
 
-	b, _ := svc.CreateBot(&models.CreateBotRequest{Name: "Am Bot"})
+	b, err := svc.CreateBot(testBotReq("Am Bot"))
+	if err != nil {
+		t.Fatalf("CreateBot: %v", err)
+	}
 
 	if !svc.IsBot(b.BotID) {
 		t.Errorf("IsBot(%q) = false, want true", b.BotID)

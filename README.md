@@ -42,8 +42,7 @@ Your agent is a normal process. It connects to ChatAPI with a JWT, receives mess
 
 ## Features
 
-- **Managed AI bots** — register a bot with your LLM provider URL and a webhook; ChatAPI calls the model, streams tokens back, and stores the reply. No agent process to build or host.
-- **External bot support** — prefer full control? Connect your own agent via JWT and handle any LLM or pipeline you like.
+- **AI bots, zero infrastructure** — register a bot with your LLM provider URL; ChatAPI calls the model, streams tokens back, and stores the reply. No agent process to build or host.
 - **Real-time WebSocket messaging** — DM and group rooms with presence, typing indicators, and at-least-once delivery guarantees
 - **LLM streaming** — token-by-token responses over WebSocket via `message.stream.*` events
 - **JWT auth** — your backend signs tokens, ChatAPI validates them. No API keys, no sessions, no vendor accounts
@@ -79,12 +78,10 @@ go run ./cmd/chatapi
 
 ## Add an AI bot in 5 minutes
 
-### Option A — Managed bot (no agent process)
-
 Set your LLM API key on the server, register the bot, add it to a room. Done.
 
 ```bash
-# 1. Set the API key on the server (key never touches the database)
+# 1. Set the API key on the server (never stored in the database)
 export GEMINI_API_KEY=AIza...
 
 # 2. Register the bot
@@ -114,26 +111,6 @@ POST https://yourapp.com/api/system-prompt
 ```
 
 Works with any OpenAI-compatible provider — Gemini, OpenAI, Ollama, OpenRouter.
-
-### Option B — External agent (full control)
-
-Connect your own process. Use any LLM, any framework, any pipeline.
-
-```javascript
-const ws = new WebSocket(`wss://your-server/ws?token=${botJWT}`);
-
-ws.onmessage = async (event) => {
-  const msg = JSON.parse(event.data);
-  if (msg.type !== "message") return;
-
-  const reply = await callYourPipeline(msg.content);
-
-  ws.send(JSON.stringify({
-    type: "send_message",
-    data: { room_id: msg.room_id, content: reply },
-  }));
-};
-```
 
 Your users see the reply in real time. Message history is stored. Offline users get a webhook.
 

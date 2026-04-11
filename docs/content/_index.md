@@ -46,8 +46,7 @@ Your agent is a normal process. It connects to ChatAPI with a JWT, receives mess
 
 ## Features
 
-- **Managed AI bots** — register a bot with your LLM provider URL and a webhook; ChatAPI calls the model, streams tokens back, and stores the reply. No agent process to build or host.
-- **External bot support** — prefer full control? Connect your own agent via JWT and handle any LLM or pipeline you like.
+- **AI bots, zero infrastructure** — register a bot with your LLM provider URL; ChatAPI calls the model, streams tokens back, and stores the reply. No agent process to build or host.
 - **Real-time WebSocket messaging** — DM and group rooms with presence, typing indicators, and at-least-once delivery guarantees
 - **LLM streaming** — token-by-token responses over WebSocket via `message.stream.*` events
 - **JWT auth** — your backend signs tokens, ChatAPI validates them. No API keys, no sessions, no vendor accounts

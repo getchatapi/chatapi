@@ -52,13 +52,14 @@ func (s *Service) CreateBot(req *models.CreateBotRequest) (*models.Bot, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
-	if req.LLMBaseURL != "" {
-		if req.LLMAPIKeyEnv == "" {
-			return nil, fmt.Errorf("llm_api_key_env is required when llm_base_url is set")
-		}
-		if req.Model == "" {
-			return nil, fmt.Errorf("model is required when llm_base_url is set")
-		}
+	if req.LLMBaseURL == "" {
+		return nil, fmt.Errorf("llm_base_url is required")
+	}
+	if req.LLMAPIKeyEnv == "" {
+		return nil, fmt.Errorf("llm_api_key_env is required")
+	}
+	if req.Model == "" {
+		return nil, fmt.Errorf("model is required")
 	}
 
 	bot, err := s.repo.Create(req)

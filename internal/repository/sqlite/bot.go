@@ -125,8 +125,7 @@ func (r *SQLiteBotRepository) GetBotsInRoom(roomID string) ([]*models.Bot, error
 		SELECT b.bot_id, b.name, b.llm_base_url, b.llm_api_key_env, b.model, b.system_prompt_webhook, b.created_at
 		FROM bots b
 		JOIN room_members rm ON rm.user_id = b.bot_id
-		WHERE rm.chatroom_id = ?
-		AND b.llm_base_url != ''`,
+		WHERE rm.chatroom_id = ?`,
 		roomID,
 	)
 	if err != nil {

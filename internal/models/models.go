@@ -54,28 +54,30 @@ type UndeliveredMessage struct {
 
 
 // Bot represents a registered AI bot participant.
-// If LLMBaseURL is set, ChatAPI will call the LLM directly and stream the
-// response back. Otherwise the bot is external — it connects via JWT like
-// any user and handles its own LLM logic.
+// ChatAPI calls the LLM on the bot's behalf, streams the response back via
+// message.stream.* events, and stores the final message.
+// LLMAPIKeyEnv names a server-side environment variable — the key is never
+// stored in the database.
 type Bot struct {
 	BotID               string    `json:"bot_id"`
 	Name                string    `json:"name"`
-	LLMBaseURL          string    `json:"llm_base_url,omitempty"`
-	LLMAPIKeyEnv        string    `json:"llm_api_key_env,omitempty"`
-	Model               string    `json:"model,omitempty"`
+	LLMBaseURL          string    `json:"llm_base_url"`
+	LLMAPIKeyEnv        string    `json:"llm_api_key_env"`
+	Model               string    `json:"model"`
 	SystemPromptWebhook string    `json:"system_prompt_webhook,omitempty"`
 	CreatedAt           time.Time `json:"created_at"`
 }
 
 // CreateBotRequest represents a request to register a bot.
-// LLMBaseURL activates managed mode: ChatAPI calls the LLM and streams the
-// response. LLMAPIKeyEnv names the server-side environment variable that
-// holds the API key — the key itself is never stored in the database.
+// LLMBaseURL, LLMAPIKeyEnv, and Model are required.
+// SystemPromptWebhook is optional — when set, ChatAPI POSTs the incoming
+// message and room history to this URL before each LLM call, and uses the
+// returned system_prompt as the system message.
 type CreateBotRequest struct {
 	Name                string `json:"name"`
-	LLMBaseURL          string `json:"llm_base_url,omitempty"`
-	LLMAPIKeyEnv        string `json:"llm_api_key_env,omitempty"`
-	Model               string `json:"model,omitempty"`
+	LLMBaseURL          string `json:"llm_base_url"`
+	LLMAPIKeyEnv        string `json:"llm_api_key_env"`
+	Model               string `json:"model"`
 	SystemPromptWebhook string `json:"system_prompt_webhook,omitempty"`
 }
 

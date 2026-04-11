@@ -187,10 +187,10 @@ client.off('message');           // remove all handlers for this event
 
 ## Bots
 
-**Managed** — ChatAPI calls the LLM and streams the response. No agent process required.
+ChatAPI calls the LLM on the bot's behalf and streams the response. No agent process required.
 
 ```typescript
-// Register a managed bot.
+// Register a bot.
 // The API key lives in an env var on the ChatAPI server — never passed here.
 const bot = await client.bots.create({
   name: 'Support Bot',
@@ -202,13 +202,6 @@ const bot = await client.bots.create({
 
 // Add the bot to a room — it responds automatically to every message
 await client.rooms.addMember('room_abc123', bot.bot_id);
-```
-
-**External** — your agent process connects via JWT.
-
-```typescript
-const bot = await client.bots.create({ name: 'My Agent' });
-// Mint a JWT with sub = bot.bot_id and connect via WebSocket
 ```
 
 **List / get / delete**

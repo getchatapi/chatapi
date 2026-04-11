@@ -296,11 +296,9 @@ Content-Type: application/json
 |---|---|---|
 | `name` | Yes | Display name |
 | `llm_base_url` | No | OpenAI-compatible base URL. Set to enable managed mode. |
-| `llm_api_key_env` | No* | Name of the server env var holding the API key. Required when `llm_base_url` is set. |
-| `model` | No* | Model identifier. Required when `llm_base_url` is set. |
+| `llm_api_key_env` | Yes | Name of the server env var holding the API key. |
+| `model` | Yes | Model identifier. |
 | `system_prompt_webhook` | No | URL called before every LLM request. Must return `{"system_prompt": "..."}`. |
-
-A bot registered without `llm_base_url` is external — it connects via JWT and handles its own LLM logic.
 
 Returns `201` with the created bot object:
 
