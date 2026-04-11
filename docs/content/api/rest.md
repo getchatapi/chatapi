@@ -283,17 +283,35 @@ Content-Type: application/json
 ```
 
 ```json
-{"name": "Support Bot"}
+{
+  "name": "Support Bot",
+  "llm_base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+  "llm_api_key_env": "GEMINI_API_KEY",
+  "model": "gemini-2.0-flash",
+  "system_prompt_webhook": "https://yourapp.com/api/chatapi/system-prompt"
+}
 ```
 
-- `name`: display name — required
+| Field | Required | Description |
+|---|---|---|
+| `name` | Yes | Display name |
+| `llm_base_url` | No | OpenAI-compatible base URL. Set to enable managed mode. |
+| `llm_api_key_env` | No* | Name of the server env var holding the API key. Required when `llm_base_url` is set. |
+| `model` | No* | Model identifier. Required when `llm_base_url` is set. |
+| `system_prompt_webhook` | No | URL called before every LLM request. Must return `{"system_prompt": "..."}`. |
 
-Returns `200` with the created bot object:
+A bot registered without `llm_base_url` is external — it connects via JWT and handles its own LLM logic.
+
+Returns `201` with the created bot object:
 
 ```json
 {
   "bot_id": "bot_abc123",
   "name": "Support Bot",
+  "llm_base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+  "llm_api_key_env": "GEMINI_API_KEY",
+  "model": "gemini-2.0-flash",
+  "system_prompt_webhook": "https://yourapp.com/api/chatapi/system-prompt",
   "created_at": "2026-04-02T12:00:00Z"
 }
 ```

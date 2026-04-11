@@ -52,4 +52,6 @@ type BotRepository interface {
 	List() ([]*models.Bot, error)
 	Delete(botID string) error
 	Exists(botID string) (bool, error)
+	// GetBotsInRoom returns all bots with LLM config that are members of the room.
+	GetBotsInRoom(roomID string) ([]*models.Bot, error)
 }

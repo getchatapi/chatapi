@@ -54,16 +54,29 @@ type UndeliveredMessage struct {
 
 
 // Bot represents a registered AI bot participant.
-// Bots connect to rooms via JWT like any user; all LLM logic lives in your agent.
+// If LLMBaseURL is set, ChatAPI will call the LLM directly and stream the
+// response back. Otherwise the bot is external — it connects via JWT like
+// any user and handles its own LLM logic.
 type Bot struct {
-	BotID     string    `json:"bot_id"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
+	BotID               string    `json:"bot_id"`
+	Name                string    `json:"name"`
+	LLMBaseURL          string    `json:"llm_base_url,omitempty"`
+	LLMAPIKeyEnv        string    `json:"llm_api_key_env,omitempty"`
+	Model               string    `json:"model,omitempty"`
+	SystemPromptWebhook string    `json:"system_prompt_webhook,omitempty"`
+	CreatedAt           time.Time `json:"created_at"`
 }
 
-// CreateBotRequest represents a request to register a bot
+// CreateBotRequest represents a request to register a bot.
+// LLMBaseURL activates managed mode: ChatAPI calls the LLM and streams the
+// response. LLMAPIKeyEnv names the server-side environment variable that
+// holds the API key — the key itself is never stored in the database.
 type CreateBotRequest struct {
-	Name string `json:"name"`
+	Name                string `json:"name"`
+	LLMBaseURL          string `json:"llm_base_url,omitempty"`
+	LLMAPIKeyEnv        string `json:"llm_api_key_env,omitempty"`
+	Model               string `json:"model,omitempty"`
+	SystemPromptWebhook string `json:"system_prompt_webhook,omitempty"`
 }
 
 // AddMemberRequest represents a request to add a member to a room

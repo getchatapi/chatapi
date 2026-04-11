@@ -12,7 +12,7 @@ import (
 func newBotSvc(t *testing.T) *bot.Service {
 	t.Helper()
 	db := testutil.NewTestDB(t)
-	return bot.NewService(sqlite.NewBotRepository(db.DB))
+	return bot.NewService(sqlite.NewBotRepository(db.DB), sqlite.NewMessageRepository(db.DB))
 }
 
 // --- CreateBot ---

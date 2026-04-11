@@ -168,8 +168,21 @@ Streaming complete. The full content is included and the message has been persis
   "type": "message.stream.end",
   "room_id": "room_abc123",
   "message_id": "msg_stream_789",
+  "sender_id": "bot_support",
   "content": "Hello, how can I help you today?",
   "seq": 45
+}
+```
+
+### message.stream.error
+
+The LLM call failed after the stream had already started. Discard any partial content accumulated for this `message_id`.
+
+```json
+{
+  "type": "message.stream.error",
+  "room_id": "room_abc123",
+  "message_id": "msg_stream_789"
 }
 ```
 

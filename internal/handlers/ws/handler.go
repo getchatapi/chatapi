@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -251,6 +252,11 @@ func (h *Handler) handleSendMessage(userID string, data interface{}) error {
 	h.realtimeSvc.BroadcastToRoom(roomID, broadcast)
 
 	go h.deliverySvc.HandleNewMessage(roomID, message)
+
+	// Trigger managed bots. Bots do not trigger other bots.
+	if !h.botSvc.IsBot(userID) {
+		go h.botSvc.TriggerBots(context.Background(), roomID, message, h.realtimeSvc)
+	}
 
 	return nil
 }
