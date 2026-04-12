@@ -92,8 +92,7 @@ curl -X POST http://localhost:8080/bots \
     "name": "Support Bot",
     "llm_base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
     "llm_api_key_env": "GEMINI_API_KEY",
-    "model": "gemini-2.0-flash",
-    "system_prompt_webhook": "https://yourapp.com/api/system-prompt"
+    "model": "gemini-2.0-flash"
   }'
 # {"bot_id": "bot_abc123", ...}
 
@@ -103,10 +102,10 @@ curl -X POST http://localhost:8080/rooms/room_123/members \
   -d '{"user_id": "bot_abc123"}'
 ```
 
-The bot now responds to every message in that room. ChatAPI calls your `system_prompt_webhook` before each LLM request — your app returns the system prompt (with RAG context, customer data, whatever you need):
+The bot now responds to every message in that room. Set `WEBHOOK_URL` on the server — ChatAPI calls it before each LLM request with `type: "bot.context"`, and your app returns the system prompt (RAG context, customer data, whatever you need):
 
 ```json
-POST https://yourapp.com/api/system-prompt
+POST https://yourapp.com/api/chatapi/webhook
 ← { "system_prompt": "You are a support agent. Relevant docs: ..." }
 ```
 

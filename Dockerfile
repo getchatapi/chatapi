@@ -47,6 +47,10 @@ USER appuser
 # Declare volume for SQLite data
 VOLUME ["/data"]
 
+# Default DSN points to the persistent /data volume.
+# Override with DATABASE_DSN env var if needed.
+ENV DATABASE_DSN="file:/data/chatapi.db"
+
 # Expose port
 EXPOSE 8080
 

@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -23,9 +25,9 @@ func NewService() *Service {
 	}
 }
 
-// OfflineMessagePayload is the body POSTed to the webhook URL.
+// OfflineMessagePayload is the body POSTed when a message arrives for an offline user.
 type OfflineMessagePayload struct {
-	Event        string          `json:"event"` // always "message.new"
+	Type         string          `json:"type"` // "message.offline"
 	RoomID       string          `json:"room_id"`
 	RecipientID  string          `json:"recipient_id"`
 	RoomMetadata json.RawMessage `json:"room_metadata,omitempty"`
@@ -51,7 +53,7 @@ func (s *Service) NotifyOfflineUser(webhookURL, webhookSecret, roomID, recipient
 	}
 
 	payload := OfflineMessagePayload{
-		Event:       "message.new",
+		Type:        "message.offline",
 		RoomID:      roomID,
 		RecipientID: recipientID,
 		Message:     msg,
@@ -72,12 +74,7 @@ func (s *Service) NotifyOfflineUser(webhookURL, webhookSecret, roomID, recipient
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	if webhookSecret != "" {
-		mac := hmac.New(sha256.New, []byte(webhookSecret))
-		mac.Write(body)
-		req.Header.Set("X-ChatAPI-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
-	}
+	sign(req, body, webhookSecret)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -89,4 +86,42 @@ func (s *Service) NotifyOfflineUser(webhookURL, webhookSecret, roomID, recipient
 	if resp.StatusCode >= 400 {
 		slog.Warn("webhook: non-2xx response", "url", webhookURL, "status", resp.StatusCode, "recipient_id", recipientID)
 	}
+}
+
+// Post sends a JSON payload to webhookURL and returns the response body.
+// Used for synchronous webhook calls that expect a response (e.g. bot.context).
+func (s *Service) Post(webhookURL, webhookSecret string, payload interface{}) ([]byte, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal payload: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, webhookURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	sign(req, body, webhookSecret)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("webhook returned HTTP %d", resp.StatusCode)
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
+// sign adds an HMAC-SHA256 signature header if secret is non-empty.
+func sign(req *http.Request, body []byte, secret string) {
+	if secret == "" {
+		return
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(body)
+	req.Header.Set("X-ChatAPI-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
 }

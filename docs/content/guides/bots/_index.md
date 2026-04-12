@@ -38,8 +38,7 @@ curl -X POST http://localhost:8080/bots \
     "name": "Support Bot",
     "llm_base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
     "llm_api_key_env": "GEMINI_API_KEY",
-    "model": "gemini-2.0-flash",
-    "system_prompt_webhook": "https://yourapp.com/api/chatapi/system-prompt"
+    "model": "gemini-2.0-flash"
   }'
 ```
 
@@ -49,7 +48,6 @@ curl -X POST http://localhost:8080/bots \
 | `llm_base_url` | Yes | OpenAI-compatible base URL |
 | `llm_api_key_env` | Yes | Name of the env var holding the API key |
 | `model` | Yes | Model identifier (e.g. `gemini-2.0-flash`, `gpt-4o`) |
-| `system_prompt_webhook` | No | URL called before every LLM request — returns the system prompt |
 
 ### 3. Add the bot to a room
 
@@ -66,14 +64,22 @@ The bot now responds to every message sent in that room.
 
 ## System prompt webhook
 
-The webhook is how your application injects context — RAG results, customer data, prompt instructions — into the LLM call. It is called **before every LLM request**, so the system prompt can be dynamic per message.
+`WEBHOOK_URL` is **required** when using bots. ChatAPI calls it before every LLM request — your app returns the system prompt for that call. This is where your RAG pipeline, persona instructions, and customer context live. Because it's in your app, you can change the system prompt at any time without touching ChatAPI.
+
+```env
+WEBHOOK_URL=https://yourapp.com/api/chatapi/webhook
+WEBHOOK_SECRET=your-hmac-secret   # recommended — used to verify the request came from ChatAPI
+```
+
+> Without `WEBHOOK_URL`, bots will call the LLM with no system prompt — the model has no instructions and will behave unpredictably.
 
 ### Request
 
-ChatAPI sends a `POST` to `system_prompt_webhook` with:
+ChatAPI sends a `POST` to `WEBHOOK_URL` with `type: "bot.context"` when a bot is about to respond:
 
 ```json
 {
+  "type": "bot.context",
   "bot_id": "bot_abc123",
   "room_id": "room_abc123",
   "message": {
@@ -92,6 +98,8 @@ ChatAPI sends a `POST` to `system_prompt_webhook` with:
 
 `history` contains up to 20 of the most recent messages in the room, formatted as OpenAI role/content pairs. The last entry is always the message that triggered the bot.
 
+The same `WEBHOOK_URL` also receives `type: "message.offline"` events for push-notification delivery. Distinguish them by the `type` field.
+
 ### Response
 
 Your webhook must return:
@@ -107,9 +115,18 @@ ChatAPI uses `system_prompt` as the `system` message at the top of the LLM messa
 ### Example — Next.js API route
 
 ```typescript
-// app/api/chatapi/system-prompt/route.ts
+// app/api/chatapi/webhook/route.ts
 export async function POST(req: Request) {
-  const { message, history } = await req.json();
+  const body = await req.json();
+
+  // Handle offline push notifications
+  if (body.type === "message.offline") {
+    await sendPushNotification(body.recipient_id, body.message);
+    return Response.json({ ok: true });
+  }
+
+  // Handle bot context injection (type === "bot.context")
+  const { message, history } = body;
 
   const docs = await vectorSearch(message.content);
   const customer = await db.customers.findByUserId(message.sender_id);

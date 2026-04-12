@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hastenr/chatapi/internal/models"
 	"github.com/hastenr/chatapi/internal/repository"
+	"github.com/hastenr/chatapi/internal/services/webhook"
 )
 
 // Broadcaster is satisfied by realtime.Service. Using an interface keeps the
@@ -33,17 +34,23 @@ type chatMessage struct {
 
 // Service manages bot registration and LLM triggering.
 type Service struct {
-	repo        repository.BotRepository
-	messageRepo repository.MessageRepository
-	httpClient  *http.Client
+	repo          repository.BotRepository
+	messageRepo   repository.MessageRepository
+	webhookSvc    *webhook.Service
+	webhookURL    string
+	webhookSecret string
+	httpClient    *http.Client
 }
 
 // NewService creates a new bot service.
-func NewService(repo repository.BotRepository, messageRepo repository.MessageRepository) *Service {
+func NewService(repo repository.BotRepository, messageRepo repository.MessageRepository, webhookSvc *webhook.Service, webhookURL, webhookSecret string) *Service {
 	return &Service{
-		repo:        repo,
-		messageRepo: messageRepo,
-		httpClient:  &http.Client{Timeout: 2 * time.Minute},
+		repo:          repo,
+		messageRepo:   messageRepo,
+		webhookSvc:    webhookSvc,
+		webhookURL:    webhookURL,
+		webhookSecret: webhookSecret,
+		httpClient:    &http.Client{Timeout: 2 * time.Minute},
 	}
 }
 
@@ -112,7 +119,7 @@ func (s *Service) TriggerBots(ctx context.Context, roomID string, msg *models.Me
 
 // runBot orchestrates a single bot response:
 //  1. Fetch recent message history.
-//  2. Call system_prompt_webhook (if configured) to get the system prompt.
+//  2. Call WEBHOOK_URL (if configured) with type "bot.context" to get the system prompt.
 //  3. Stream the LLM response back via message.stream.* events.
 //  4. Persist the final message.
 func (s *Service) runBot(b *models.Bot, roomID string, triggerMsg *models.Message, broadcaster Broadcaster) {
@@ -141,9 +148,13 @@ func (s *Service) runBot(b *models.Bot, roomID string, triggerMsg *models.Messag
 		history = append(history, chatMessage{Role: role, Content: m.Content})
 	}
 
-	// 2. Get system prompt from webhook (always called if configured).
+	// 2. Get system prompt from webhook.
+	// WEBHOOK_URL is required for bots — without it the LLM receives no instructions.
 	var systemPrompt string
-	if b.SystemPromptWebhook != "" {
+	if s.webhookURL == "" {
+		slog.Warn("runBot: WEBHOOK_URL not set — bot will call LLM with no system prompt", "bot_id", b.BotID)
+	} else {
+		var err error
 		systemPrompt, err = s.callWebhook(ctx, b, roomID, triggerMsg, history)
 		if err != nil {
 			slog.Error("runBot: webhook failed", "bot_id", b.BotID, "error", err)
@@ -193,34 +204,35 @@ func (s *Service) runBot(b *models.Bot, roomID string, triggerMsg *models.Messag
 	})
 }
 
-// webhookPayload is the payload POSTed to system_prompt_webhook.
-type webhookPayload struct {
+// botContextPayload is the body sent to WEBHOOK_URL for type "bot.context".
+// The app returns {"system_prompt": "..."} which ChatAPI passes to the LLM.
+type botContextPayload struct {
+	Type    string        `json:"type"` // always "bot.context"
 	BotID   string        `json:"bot_id"`
 	RoomID  string        `json:"room_id"`
-	Message webhookMsgRef `json:"message"`
+	Message botMsgRef     `json:"message"`
 	History []chatMessage `json:"history"`
 }
 
-type webhookMsgRef struct {
+type botMsgRef struct {
 	MessageID string `json:"message_id"`
 	SenderID  string `json:"sender_id"`
 	Content   string `json:"content"`
 	CreatedAt string `json:"created_at"`
 }
 
-// webhookResponse is the expected JSON response from system_prompt_webhook.
-// The system_prompt is passed verbatim as the system message to the LLM.
-type webhookResponse struct {
+type botContextResponse struct {
 	SystemPrompt string `json:"system_prompt"`
 }
 
-// callWebhook POSTs the incoming message and room history to the bot's
-// system_prompt_webhook and returns the system prompt to use for the LLM call.
-func (s *Service) callWebhook(ctx context.Context, b *models.Bot, roomID string, msg *models.Message, history []chatMessage) (string, error) {
-	payload := webhookPayload{
+// callWebhook POSTs a bot.context event to the server webhook URL and returns
+// the system prompt the app wants ChatAPI to use for this LLM call.
+func (s *Service) callWebhook(_ context.Context, b *models.Bot, roomID string, msg *models.Message, history []chatMessage) (string, error) {
+	payload := botContextPayload{
+		Type:   "bot.context",
 		BotID:  b.BotID,
 		RoomID: roomID,
-		Message: webhookMsgRef{
+		Message: botMsgRef{
 			MessageID: msg.MessageID,
 			SenderID:  msg.SenderID,
 			Content:   msg.Content,
@@ -229,30 +241,14 @@ func (s *Service) callWebhook(ctx context.Context, b *models.Bot, roomID string,
 		History: history,
 	}
 
-	body, err := json.Marshal(payload)
+	respBody, err := s.webhookSvc.Post(s.webhookURL, s.webhookSecret, payload)
 	if err != nil {
-		return "", fmt.Errorf("marshal webhook payload: %w", err)
+		return "", err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.SystemPromptWebhook, bytes.NewReader(body))
-	if err != nil {
-		return "", fmt.Errorf("create webhook request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("call webhook: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("webhook returned HTTP %d", resp.StatusCode)
-	}
-
-	var result webhookResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("decode webhook response: %w", err)
+	var result botContextResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("decode bot.context response: %w", err)
 	}
 
 	return result.SystemPrompt, nil

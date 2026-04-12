@@ -58,27 +58,25 @@ type UndeliveredMessage struct {
 // message.stream.* events, and stores the final message.
 // LLMAPIKeyEnv names a server-side environment variable — the key is never
 // stored in the database.
+// WEBHOOK_URL must be set on the server — ChatAPI POSTs a bot.context event
+// before each LLM call and uses the returned system_prompt. Without it the
+// LLM receives no instructions.
 type Bot struct {
-	BotID               string    `json:"bot_id"`
-	Name                string    `json:"name"`
-	LLMBaseURL          string    `json:"llm_base_url"`
-	LLMAPIKeyEnv        string    `json:"llm_api_key_env"`
-	Model               string    `json:"model"`
-	SystemPromptWebhook string    `json:"system_prompt_webhook,omitempty"`
-	CreatedAt           time.Time `json:"created_at"`
+	BotID        string    `json:"bot_id"`
+	Name         string    `json:"name"`
+	LLMBaseURL   string    `json:"llm_base_url"`
+	LLMAPIKeyEnv string    `json:"llm_api_key_env"`
+	Model        string    `json:"model"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // CreateBotRequest represents a request to register a bot.
 // LLMBaseURL, LLMAPIKeyEnv, and Model are required.
-// SystemPromptWebhook is optional — when set, ChatAPI POSTs the incoming
-// message and room history to this URL before each LLM call, and uses the
-// returned system_prompt as the system message.
 type CreateBotRequest struct {
-	Name                string `json:"name"`
-	LLMBaseURL          string `json:"llm_base_url"`
-	LLMAPIKeyEnv        string `json:"llm_api_key_env"`
-	Model               string `json:"model"`
-	SystemPromptWebhook string `json:"system_prompt_webhook,omitempty"`
+	Name         string `json:"name"`
+	LLMBaseURL   string `json:"llm_base_url"`
+	LLMAPIKeyEnv string `json:"llm_api_key_env"`
+	Model        string `json:"model"`
 }
 
 // AddMemberRequest represents a request to add a member to a room

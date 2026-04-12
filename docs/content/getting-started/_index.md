@@ -39,10 +39,10 @@ cp .env.example .env
 |----------|---------|-------------|
 | `JWT_SECRET` | *(required)* | Secret used to validate JWT Bearer tokens. Generate with `openssl rand -base64 32`. |
 | `ALLOWED_ORIGINS` | *(none)* | Comma-separated allowed origins for CORS and WebSocket upgrade. Required for browser clients. Use `*` for local dev. |
-| `WEBHOOK_URL` | *(none)* | Your backend URL called when a message arrives for an offline user. Leave blank to disable. |
-| `WEBHOOK_SECRET` | *(none)* | HMAC-SHA256 secret for verifying webhook calls from ChatAPI. |
+| `WEBHOOK_URL` | *(none)* | Your backend URL for webhook events. **Required if you use bots** (provides the system prompt). Also called for offline push notifications. |
+| `WEBHOOK_SECRET` | *(none)* | HMAC-SHA256 secret for verifying webhook calls from ChatAPI. Recommended in production. |
 | `LISTEN_ADDR` | `:8080` | Server listen address |
-| `DATABASE_DSN` | `file:./chatapi.db` | SQLite connection string. Use an absolute path in Docker. |
+| `DATABASE_DSN` | `file:./chatapi.db` (binary) / `file:/data/chatapi.db` (Docker) | SQLite connection string. The Docker image defaults to `/data` — mount a volume there to persist data across restarts. |
 | `RATE_LIMIT_MESSAGES` | `10` | Sustained message sends per second per user. Set to `0` to disable. |
 | `RATE_LIMIT_MESSAGES_BURST` | `20` | Burst allowance on top of the sustained rate. |
 | `GEMINI_API_KEY` / `OPENAI_API_KEY` / … | *(none)* | LLM API keys referenced by managed bots via `llm_api_key_env`. Name the variable whatever you like — the bot config stores only the variable name, not the key. |

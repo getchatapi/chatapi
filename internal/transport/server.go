@@ -42,7 +42,7 @@ func NewServer(cfg *config.Config, database *db.DB, realtimeSvc *realtime.Servic
 	messageSvc := message.NewService(msgRepo)
 	webhookSvc := webhook.NewService()
 	deliverySvc := delivery.NewService(delivRepo, realtimeSvc, chatroomSvc, cfg.WebhookURL, cfg.WebhookSecret, webhookSvc)
-	botSvc := bot.NewService(botRepo, msgRepo)
+	botSvc := bot.NewService(botRepo, msgRepo, webhookSvc, cfg.WebhookURL, cfg.WebhookSecret)
 
 	// Build the per-user message rate limiter (0 rps = disabled).
 	var msgLimiter *ratelimit.Limiter

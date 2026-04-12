@@ -19,7 +19,7 @@ func NewBotRepository(db *sql.DB) *SQLiteBotRepository {
 	return &SQLiteBotRepository{db: db}
 }
 
-const botColumns = `bot_id, name, llm_base_url, llm_api_key_env, model, system_prompt_webhook, created_at`
+const botColumns = `bot_id, name, llm_base_url, llm_api_key_env, model, created_at`
 
 func scanBot(row interface {
 	Scan(dest ...any) error
@@ -31,7 +31,6 @@ func scanBot(row interface {
 		&bot.LLMBaseURL,
 		&bot.LLMAPIKeyEnv,
 		&bot.Model,
-		&bot.SystemPromptWebhook,
 		&bot.CreatedAt,
 	)
 	return &bot, err
@@ -40,19 +39,18 @@ func scanBot(row interface {
 // Create registers a new bot.
 func (r *SQLiteBotRepository) Create(req *models.CreateBotRequest) (*models.Bot, error) {
 	bot := &models.Bot{
-		BotID:               uuid.New().String(),
-		Name:                req.Name,
-		LLMBaseURL:          req.LLMBaseURL,
-		LLMAPIKeyEnv:        req.LLMAPIKeyEnv,
-		Model:               req.Model,
-		SystemPromptWebhook: req.SystemPromptWebhook,
-		CreatedAt:           time.Now().UTC(),
+		BotID:        uuid.New().String(),
+		Name:         req.Name,
+		LLMBaseURL:   req.LLMBaseURL,
+		LLMAPIKeyEnv: req.LLMAPIKeyEnv,
+		Model:        req.Model,
+		CreatedAt:    time.Now().UTC(),
 	}
 
 	_, err := r.db.Exec(`
-		INSERT INTO bots (bot_id, name, llm_base_url, llm_api_key_env, model, system_prompt_webhook, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		bot.BotID, bot.Name, bot.LLMBaseURL, bot.LLMAPIKeyEnv, bot.Model, bot.SystemPromptWebhook, bot.CreatedAt,
+		INSERT INTO bots (bot_id, name, llm_base_url, llm_api_key_env, model, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		bot.BotID, bot.Name, bot.LLMBaseURL, bot.LLMAPIKeyEnv, bot.Model, bot.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create bot: %w", err)
@@ -119,10 +117,10 @@ func (r *SQLiteBotRepository) Exists(botID string) (bool, error) {
 	return true, nil
 }
 
-// GetBotsInRoom returns all bots with LLM config that are members of the given room.
+// GetBotsInRoom returns all bots that are members of the given room.
 func (r *SQLiteBotRepository) GetBotsInRoom(roomID string) ([]*models.Bot, error) {
 	rows, err := r.db.Query(`
-		SELECT b.bot_id, b.name, b.llm_base_url, b.llm_api_key_env, b.model, b.system_prompt_webhook, b.created_at
+		SELECT b.bot_id, b.name, b.llm_base_url, b.llm_api_key_env, b.model, b.created_at
 		FROM bots b
 		JOIN room_members rm ON rm.user_id = b.bot_id
 		WHERE rm.chatroom_id = ?`,

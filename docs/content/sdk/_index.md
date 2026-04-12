@@ -197,7 +197,6 @@ const bot = await client.bots.create({
   llm_base_url: 'https://generativelanguage.googleapis.com/v1beta/openai/',
   llm_api_key_env: 'GEMINI_API_KEY',
   model: 'gemini-2.0-flash',
-  system_prompt_webhook: 'https://yourapp.com/api/chatapi/system-prompt',
 });
 
 // Add the bot to a room — it responds automatically to every message
