@@ -196,4 +196,3 @@ curl -X DELETE http://localhost:8080/bots/bot_abc123 -H "Authorization: Bearer $
 
 - [WebSocket API](/api/websocket/) — Full event reference including stream events
 - [REST API](/api/rest/) — Bot and room endpoint reference
-- [TypeScript SDK](/sdk/) — `chat.bots.create(...)` and streaming event handlers

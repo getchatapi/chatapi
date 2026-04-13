@@ -69,28 +69,6 @@ ws://localhost:8080/ws                    # server (Authorization header)
 | `presence.update` | User came online or went offline |
 | `server.shutdown` | Server is restarting |
 
-## SDK
-
-The official TypeScript SDK is available on npm:
-
-```bash
-npm install @hastenr/chatapi-sdk
-```
-
-```typescript
-import { ChatAPI } from '@hastenr/chatapi-sdk';
-
-const client = new ChatAPI({
-  baseURL: 'https://your-chatapi.com',
-  token: '<your-signed-jwt>',
-});
-
-await client.connect();
-
-client.on('message', (ev) => console.log(ev.content));
-client.rooms.sendMessage('room_abc', 'Hello!');
-```
-
 ## Reference
 
 - [REST API Reference](/api/rest/) — Full endpoint documentation with examples

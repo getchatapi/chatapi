@@ -210,3 +210,27 @@ blockquote {
     box-shadow: 0 0 0 2px rgba(0, 237, 100, 0.15) !important;
   }
 }
+
+// ── Copy button ───────────────────────────────────────────────────────────────
+
+.copy-btn {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  padding: 0.2rem 0.6rem;
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: #889397;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+
+  &:hover {
+    color: var(--color-green);
+    background: rgba(0, 237, 100, 0.1);
+    border-color: rgba(0, 237, 100, 0.3);
+  }
+}

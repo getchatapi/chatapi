@@ -5,7 +5,7 @@ import "time"
 // Room represents a chat room
 type Room struct {
 	RoomID    string    `json:"room_id" db:"room_id"`
-	Type      string    `json:"type" db:"type"` // "dm", "group", "channel"
+	Type      string    `json:"type" db:"type"` // "dm" or "group"
 	UniqueKey string    `json:"-" db:"unique_key"` // For DMs
 	Name      string    `json:"name,omitempty" db:"name"`
 	LastSeq   int       `json:"last_seq" db:"last_seq"`
@@ -98,7 +98,7 @@ type UpdateMessageRequest struct {
 
 // CreateRoomRequest represents a request to create a room
 type CreateRoomRequest struct {
-	Type     string   `json:"type"` // "dm", "group", "channel"
+	Type     string   `json:"type"` // "dm" or "group"
 	Members  []string `json:"members"`
 	Name     string   `json:"name,omitempty"`
 	Metadata string   `json:"metadata,omitempty"` // Arbitrary JSON (listing_id, order_id, etc.)

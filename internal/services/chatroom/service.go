@@ -28,7 +28,7 @@ func (s *Service) CreateRoom(req *models.CreateRoomRequest) (*models.Room, error
 	switch req.Type {
 	case "dm":
 		room, err = s.createDMRoom(req)
-	case "group", "channel":
+	case "group":
 		room, err = s.createGroupRoom(req)
 	default:
 		return nil, fmt.Errorf("invalid room type: %s", req.Type)
@@ -80,7 +80,7 @@ func (s *Service) createDMRoom(req *models.CreateRoomRequest) (*models.Room, err
 
 func (s *Service) createGroupRoom(req *models.CreateRoomRequest) (*models.Room, error) {
 	if len(req.Members) < 2 {
-		return nil, fmt.Errorf("group/channel rooms must have at least 2 members")
+		return nil, fmt.Errorf("group rooms must have at least 2 members")
 	}
 
 	room := &models.Room{

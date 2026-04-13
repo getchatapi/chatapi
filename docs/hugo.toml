@@ -41,6 +41,11 @@ theme = 'hugo-book'
     weight = 10
 
   [[menu.main]]
+    name = "Deploy"
+    url = "/deploy/"
+    weight = 15
+
+  [[menu.main]]
     name = "API Reference"
     url = "/api/"
     weight = 20

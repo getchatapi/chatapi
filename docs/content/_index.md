@@ -8,7 +8,7 @@ weight = 1
   <img src="/logo.svg" width="220" alt="ChatAPI" />
 </p>
 
-<p align="center">The messaging layer for apps where AI is a participant.</p>
+<p align="center">Real-time chat infrastructure for AI-powered apps.</p>
 
 <p align="center">
   <a href="https://golang.org/"><img src="https://img.shields.io/badge/go-1.22+-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go version" /></a>
@@ -26,33 +26,16 @@ weight = 1
 
 ---
 
-Most chat infrastructure was built before AI was a participant in the conversation. Bolting LLM support onto those systems means wrestling with per-MAU pricing, vendor lock-in, and data leaving your infrastructure.
-
-ChatAPI is built for the other case: apps where one or more participants is an AI. Your agent — whether it calls OpenAI, runs RAG, or does multi-step reasoning — connects to ChatAPI like any other user. ChatAPI handles the rest: real-time delivery, message history, presence, streaming, and offline webhooks. Single binary. Your data, your server.
-
-## How it works
-
-```
-  Your users
-     ↕  WebSocket
-   ChatAPI
-     ↕  REST / WebSocket (bot JWT)
-  Your AI agent
-     ↕
-  OpenAI · Anthropic · Ollama · RAG · anything
-```
-
-Your agent is a normal process. It connects to ChatAPI with a JWT, receives messages, calls whatever LLM or pipeline it needs, and posts the reply back. ChatAPI streams the response to every connected client in real time. No vendor lock-in. No framework constraints. Swap models without touching your infrastructure.
+ChatAPI is a self-hosted messaging server for apps where AI participates in conversations. It handles real-time delivery, message history, presence, typing indicators, and LLM streaming — so you focus on your product, not the plumbing.
 
 ## Features
 
-- **AI bots, zero infrastructure** — register a bot with your LLM provider URL; ChatAPI calls the model, streams tokens back, and stores the reply. No agent process to build or host.
-- **Real-time WebSocket messaging** — DM and group rooms with presence, typing indicators, and at-least-once delivery guarantees
-- **LLM streaming** — token-by-token responses over WebSocket via `message.stream.*` events
-- **JWT auth** — your backend signs tokens, ChatAPI validates them. No API keys, no sessions, no vendor accounts
-- **Webhook for offline delivery** — ChatAPI calls your endpoint when a message arrives for an offline user
-- **TypeScript SDK** — `npm install @hastenr/chatapi-sdk`
-- **Single binary** — SQLite included, no external services required at runtime
+- **Managed AI bots** — register a bot with an LLM provider URL; ChatAPI calls the model, streams tokens back via `message.stream.*` events, and stores the reply
+- **Real-time messaging** — rooms (DM or group) with presence, typing indicators, and at-least-once delivery
+- **JWT auth** — your backend signs tokens, ChatAPI validates them; no vendor accounts, no sessions
+- **Offline delivery** — messages queue for offline users; webhook fires so you can send push notifications
+- **Escalation support** — webhook can return `{"skip": true}` to silence a bot when a human agent takes over
+- **Single binary** — SQLite included, no external services required
 - **Portable** — swap SQLite → PostgreSQL or local pub/sub → Redis by implementing one interface
 
 ## Quick start
@@ -63,7 +46,7 @@ docker run -d \
   -e JWT_SECRET=$(openssl rand -base64 32) \
   -e ALLOWED_ORIGINS="*" \
   -v chatapi-data:/data \
-  getchatapi/chatapi:latest
+  hastenr/chatapi:latest
 ```
 
 ```bash
@@ -76,6 +59,5 @@ curl http://localhost:8080/health
 - [Getting Started](/getting-started/) — Installation, configuration, and first API call
 - [REST API](/api/rest/) — HTTP endpoint reference
 - [WebSocket API](/api/websocket/) — Real-time event reference
-- [TypeScript SDK](/sdk/) — `npm install @hastenr/chatapi-sdk`
-- [Architecture](/architecture/) — System design and database schema
-- [AI Bots](/guides/bots/) — Connect your agent
+- [AI Bots](/guides/bots/) — Register a bot and connect it to a room
+- [Architecture](/architecture/) — System design and internals
