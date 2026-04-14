@@ -158,10 +158,19 @@ components:
           type: string
         name:
           type: string
+        llm_base_url:
+          type: string
+          description: Base URL of the LLM API (e.g. https://api.openai.com/v1)
+        llm_api_key_env:
+          type: string
+          description: Name of the server-side environment variable holding the API key
+        model:
+          type: string
+          description: Model identifier (e.g. gpt-4o, claude-sonnet-4-6)
         created_at:
           type: string
           format: date-time
-      required: [bot_id, name, created_at]
+      required: [bot_id, name, llm_base_url, llm_api_key_env, model, created_at]
 
     CreateBotRequest:
       type: object
@@ -169,7 +178,16 @@ components:
         name:
           type: string
           description: Display name for the bot
-      required: [name]
+        llm_base_url:
+          type: string
+          description: Base URL of the LLM API (e.g. https://api.openai.com/v1)
+        llm_api_key_env:
+          type: string
+          description: Name of the server-side environment variable holding the API key
+        model:
+          type: string
+          description: Model identifier (e.g. gpt-4o, claude-sonnet-4-6)
+      required: [name, llm_base_url, llm_api_key_env, model]
 
     UndeliveredMessage:
       type: object
@@ -211,6 +229,25 @@ paths:
                   status:
                     type: string
                     example: ok
+                  db_writable:
+                    type: boolean
+                  uptime:
+                    type: string
+                    description: Human-readable uptime (e.g. "1h23m4s")
+                required: [status, db_writable, uptime]
+        "503":
+          description: Database unavailable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  db_writable:
+                    type: boolean
+                  uptime:
+                    type: string
 
   /metrics:
     get:
@@ -517,9 +554,13 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Bot"
+                type: object
+                properties:
+                  bots:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Bot"
+                required: [bots]
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -533,7 +574,7 @@ paths:
             schema:
               $ref: "#/components/schemas/CreateBotRequest"
       responses:
-        "200":
+        "201":
           description: Bot registered
           content:
             application/json:
@@ -594,7 +635,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  messages:
+                  failed_messages:
                     type: array
                     items:
                       $ref: "#/components/schemas/UndeliveredMessage"
